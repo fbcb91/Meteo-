@@ -15,6 +15,9 @@
     nowIndex: 0,       // indice dell'ora corrente negli array orari
     selectedDay: 0,
     headline: "",
+    summary: null,     // { title, text, ai } per il momento attuale
+    preview: null,     // indice orario che si sta guardando nel "viaggio nel tempo"
+    art: "",
     aiAvailable: null, // null = non ancora verificato
     requestId: 0,
   };
@@ -160,6 +163,58 @@
     }
   }
 
+  /* ---------- La scena animata dentro il blocco cielo ---------- */
+
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const many = (n, fn) => Array.from({ length: n }, (_, i) => fn(i)).join("");
+  const layer = (depth, html) => `<div class="a-layer" style="--d:${depth}">${html}</div>`;
+
+  const clouds = (n) => many(n, (i) => {
+    const w = rnd(150, 300), t = rnd(60, 120);
+    return `<i class="a-cloud" style="--w:${w.toFixed(0)}px;--h:${(w * 0.3).toFixed(0)}px;--y:${(4 + i * (62 / n) + rnd(0, 8)).toFixed(0)}%;--t:${t.toFixed(0)}s;--dl:-${rnd(0, t).toFixed(0)}s"></i>`;
+  });
+  const rain = (n) => many(n, () => {
+    const t = rnd(0.55, 1.1);
+    return `<i class="a-drop${Math.random() < 0.3 ? " hi" : ""}" style="left:${rnd(0, 125).toFixed(1)}%;--h:${rnd(14, 34).toFixed(0)}px;--t:${t.toFixed(2)}s;--dl:-${rnd(0, t).toFixed(2)}s"></i>`;
+  });
+  const sunDisc = (rings) => `<i class="a-disc"></i>` + (rings ? `<i class="a-disc a-ring"></i><i class="a-disc a-ring"></i>` : "");
+
+  const SCENES = {
+    sun: () => layer(6, `<i class="a-burst"></i>`) + layer(16, sunDisc(true)),
+    partly: () => layer(6, `<i class="a-burst"></i>`) + layer(14, sunDisc(false)) + layer(26, clouds(3)),
+    cloud: () => layer(10, clouds(3)) + layer(24, clouds(3)),
+    "night-cloud": () => layer(10, clouds(3)) + layer(24, clouds(2)),
+    night: () => layer(5, many(54, () => {
+      const t = rnd(2, 6);
+      return `<i class="a-star" style="left:${rnd(0, 100).toFixed(1)}%;top:${rnd(0, 100).toFixed(1)}%;--s:${rnd(1.5, 4).toFixed(1)}px;--t:${t.toFixed(1)}s;--dl:-${rnd(0, t).toFixed(1)}s"></i>`;
+    }) + `<i class="a-shoot"></i>`) + layer(18, `<i class="a-disc a-moon"></i><i class="a-disc a-moon-cut"></i>`),
+    rain: () => layer(8, rain(34)) + layer(22, rain(22)),
+    storm: () => layer(0, `<i class="a-flash"></i>`) + layer(8, rain(40)) + layer(22, rain(26)),
+    snow: () => layer(8, many(46, () => {
+      const t = rnd(7, 15);
+      return `<i class="a-flake" style="left:${rnd(0, 100).toFixed(1)}%;--s:${rnd(5, 13).toFixed(0)}px;--t:${t.toFixed(1)}s;--dl:-${rnd(0, t).toFixed(1)}s"></i>`;
+    })),
+    fog: () => layer(12, many(6, (i) =>
+      `<i class="a-band" style="--y:${8 + i * 16}%;--h:${rnd(14, 34).toFixed(0)}px;--t:${rnd(9, 18).toFixed(0)}s;--dl:-${rnd(0, 9).toFixed(0)}s"></i>`)),
+  };
+
+  function renderArt(art) {
+    if (art === state.art) return;
+    state.art = art;
+    const sky = $("sky");
+    sky.dataset.art = art;
+    sky.querySelector(".sky-art").innerHTML = SCENES[art]();
+  }
+
+  // Leggera parallasse: la scena segue il puntatore.
+  $("sky").addEventListener("pointermove", (e) => {
+    if (reducedMotion || e.pointerType === "touch") return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const artEl = e.currentTarget.querySelector(".sky-art");
+    artEl.style.setProperty("--px", (((e.clientX - r.left) / r.width) * 2 - 1).toFixed(3));
+    artEl.style.setProperty("--py", (((e.clientY - r.top) / r.height) * 2 - 1).toFixed(3));
+  });
+
   /* ---------- Dati ---------- */
 
   const coords = ({ lat, lon }) => ({ latitude: lat, longitude: lon, timezone: "auto" });
@@ -250,6 +305,8 @@
       state.sea = sea?.current?.wave_height != null && kmBetween(place.lat, place.lon, sea.latitude, sea.longitude) <= 40 ? sea.current : null;
       state.trust = trustFrom(models, data.daily.time);
       state.selectedDay = 0;
+      state.preview = null;
+      state.summary = null;
       const key = data.current.time.slice(0, 13);
       state.nowIndex = Math.max(0, data.hourly.time.findIndex((t) => t.slice(0, 13) === key));
 
@@ -304,28 +361,7 @@
   /* ---------- Render ---------- */
 
   function render() {
-    const { data, place } = state;
-    const c = data.current, d = data.daily;
-    const day = !!c.is_day;
-
-    document.body.dataset.mode = day ? "day" : "night";
-    $("sky").dataset.art = artFor(c.weather_code, day);
-    document.querySelector('meta[name="theme-color"]').content = day ? "#F3EEE4" : "#101116";
-
-    const sub = [place.admin, place.country].filter((x) => x && x !== place.name).join(", ");
-    $("place").innerHTML = esc(place.name) + (sub ? `<small>${esc(sub)}</small>` : "");
-    $("when").textContent = new Date(c.time).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" }) + " · " + hhmm(c.time);
-    $("now-temp").textContent = `${round(c.temperature_2m)}°`;
-    $("now-icon").innerHTML = icon(c.weather_code, day);
-    $("now-label").textContent = `${label(c.weather_code)} · percepiti ${round(c.apparent_temperature)}°`;
-
-    const meta = [`Max ${round(d.temperature_2m_max[0])}°`, `Min ${round(d.temperature_2m_min[0])}°`];
-    if (data.yesterday) {
-      const delta = round(d.temperature_2m_max[0] - data.yesterday.max);
-      meta.push(Math.abs(delta) < 2 ? "come ieri" : `${Math.abs(delta)}° più ${delta > 0 ? "caldo" : "fresco"} di ieri`);
-    }
-    $("now-meta").textContent = meta.join(" · ");
-
+    renderSky();
     $("fav-toggle").hidden = false;
     $("share").hidden = false;
     renderFavs();
@@ -343,6 +379,96 @@
     void app.offsetWidth; // riavvia l'animazione d'ingresso
     app.classList.add("ready");
   }
+
+  let shownTemp = null, tempTimer = 0;
+  function countTo(value) {
+    const el = $("now-temp"), from = shownTemp ?? value;
+    cancelAnimationFrame(tempTimer);
+    shownTemp = value;
+    if (reducedMotion || from === value) { el.textContent = `${value}°`; return; }
+    const start = performance.now();
+    const step = (now) => {
+      const k = Math.min((now - start) / 600, 1);
+      el.textContent = `${Math.round(from + (value - from) * (1 - (1 - k) ** 3))}°`;
+      if (k < 1) tempTimer = requestAnimationFrame(step);
+    };
+    tempTimer = requestAnimationFrame(step);
+  }
+
+  function setHeadline(text) {
+    const el = $("headline");
+    el.setAttribute("aria-label", text);
+    el.innerHTML = text.split(" ").map((w, i) => `<span class="w" aria-hidden="true"><span style="--i:${i}">${esc(w)}</span></span>`).join(" ");
+  }
+
+  /* Il blocco cielo mostra adesso oppure, durante il "viaggio nel tempo", l'ora scelta. */
+  function renderSky() {
+    const { data, place, preview } = state;
+    const c = data.current, d = data.daily, h = data.hourly;
+    const at = preview != null;
+    const code = at ? h.weather_code[preview] : c.weather_code;
+    const day = !!(at ? h.is_day[preview] : c.is_day);
+    const iso = at ? h.time[preview] : c.time;
+
+    document.body.dataset.mode = day ? "day" : "night";
+    renderArt(artFor(code, day));
+    document.querySelector('meta[name="theme-color"]').content = day ? "#F3EEE4" : "#101116";
+
+    const sub = [place.admin, place.country].filter((x) => x && x !== place.name).join(", ");
+    $("place").innerHTML = esc(place.name) + (sub ? `<small>${esc(sub)}</small>` : "");
+    $("when").textContent = new Date(iso).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" }) + " · " + hhmm(iso);
+    countTo(round(at ? h.temperature_2m[preview] : c.temperature_2m));
+    $("now-icon").innerHTML = icon(code, day);
+    $("now-label").textContent = `${label(code)} · percepiti ${round(at ? h.apparent_temperature[preview] : c.apparent_temperature)}°`;
+
+    if (at) {
+      $("now-meta").textContent = `Pioggia ${h.precipitation_probability[preview] ?? 0}% · Vento ${round(h.wind_speed_10m[preview])} km/h`;
+    } else {
+      const meta = [`Max ${round(d.temperature_2m_max[0])}°`, `Min ${round(d.temperature_2m_min[0])}°`];
+      if (data.yesterday) {
+        const delta = round(d.temperature_2m_max[0] - data.yesterday.max);
+        meta.push(Math.abs(delta) < 2 ? "come ieri" : `${Math.abs(delta)}° più ${delta > 0 ? "caldo" : "fresco"} di ieri`);
+      }
+      $("now-meta").textContent = meta.join(" · ");
+    }
+    renderLead();
+  }
+
+  function renderLead(type = false) {
+    const { data, preview, summary } = state;
+    const text = $("ai-text");
+    clearInterval(typing);
+    $("back-now").hidden = preview == null;
+    $("nowcast").classList.toggle("off", preview != null);
+
+    if (preview != null) {
+      const h = data.hourly, iso = h.time[preview];
+      const hour = Number(hourOf(iso));
+      const dayWord = isToday(iso) ? "" : new Date(iso).toLocaleDateString("it-IT", { weekday: "long" }) + " ";
+      const head = `${dayWord}${hour === 1 ? "all'una" : `alle ${hour}`}: ${label(h.weather_code[preview]).toLowerCase()}.`;
+      setHeadline(head[0].toUpperCase() + head.slice(1));
+      text.textContent = `${round(h.temperature_2m[preview])}° sul termometro, ${round(h.apparent_temperature[preview])}° percepiti. Umidità ${round(h.relative_humidity_2m[preview])}%, raffiche fino a ${round(h.wind_gusts_10m[preview] ?? h.wind_speed_10m[preview])} km/h.`;
+      $("ai-badge").hidden = true;
+    } else if (summary) {
+      setHeadline(summary.title);
+      if (type) typeInto(text, summary.text); else text.textContent = summary.text;
+      $("ai-badge").hidden = !summary.ai;
+    } else {
+      $("headline").innerHTML = '<span class="sk" style="width:90%;height:.9em"></span><span class="sk" style="width:60%;height:.9em"></span>';
+      text.innerHTML = '<span class="sk sk-line"></span><span class="sk sk-line short"></span>';
+      $("ai-badge").hidden = true;
+    }
+  }
+
+  function travelTo(i) {
+    state.preview = i === state.nowIndex ? null : i;
+    renderSky();
+    markHour();
+    if (state.preview != null && $("sky").getBoundingClientRect().bottom < 120) {
+      $("sky").scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+    }
+  }
+  $("back-now").addEventListener("click", () => travelTo(state.nowIndex));
 
   /* Pioggia nelle prossime due ore, a passi di 15 minuti. */
   function minutes(m) {
@@ -423,20 +549,73 @@
       const time = isNow ? "Ora" : midnight
         ? new Date(h.time[i]).toLocaleDateString("it-IT", { weekday: "short" })
         : hourOf(h.time[i]);
-      html += `<li class="${isNow ? "is-now" : ""}">
+      html += `<li><button type="button" data-i="${i}" aria-pressed="false"
+          aria-label="${isNow ? "Adesso" : "Ore " + hourOf(h.time[i])}: ${esc(label(h.weather_code[i]))}, ${round(h.temperature_2m[i])}°, pioggia ${prob}%">
         <span class="h-time">${esc(time)}</span>
         ${icon(h.weather_code[i], !!h.is_day[i])}
         <span class="h-track"><span class="h-temp" style="--t:${((h.temperature_2m[i] - lo) / span).toFixed(2)}">${round(h.temperature_2m[i])}°</span></span>
+        <span class="h-bar"><i style="--p:${prob};--n:${i - from}"></i></span>
         <span class="h-rain">${prob >= 20 ? prob + "%" : ""}</span>
-      </li>`;
+      </button></li>`;
     }
-    const list = $("hours");
-    list.innerHTML = html;
-    list.scrollLeft = 0;
+    $("hours").innerHTML = html;
+    $("hours-wrap").scrollLeft = 0;
 
     $("hourly-title").textContent = day === 0 ? "Ora per ora" : "Ora per ora · " + dayName(day, "long");
     $("back-today").hidden = day === 0;
+    $("hours-hint").hidden = day !== 0;
+    markHour();
+    drawCurve(true);
   }
+
+  function markHour() {
+    const current = state.preview ?? state.nowIndex;
+    document.querySelectorAll("#hours button").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.i) === current)));
+    document.querySelectorAll("#hours-curve circle").forEach((dot) => dot.classList.toggle("sel", Number(dot.dataset.i) === current));
+  }
+
+  // Curva morbida che passa sotto le temperature: i punti si leggono dalla pagina, così segue sempre il layout.
+  function drawCurve(animate = false) {
+    const list = $("hours"), svg = $("hours-curve");
+    const box = list.getBoundingClientRect();
+    if (!box.width) return;
+    const pts = [...list.querySelectorAll("button")].map((b) => {
+      const r = b.querySelector(".h-temp").getBoundingClientRect();
+      return { x: r.left + r.width / 2 - box.left, y: r.bottom - box.top + 9, i: b.dataset.i };
+    });
+    if (pts.length < 2) { svg.innerHTML = ""; return; }
+    const floor = Math.max(...pts.map((p) => p.y)) + 18;
+
+    let line = `M${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+    for (let k = 0; k < pts.length - 1; k++) {
+      const p0 = pts[Math.max(k - 1, 0)], p1 = pts[k], p2 = pts[k + 1], p3 = pts[Math.min(k + 2, pts.length - 1)];
+      const c1 = { x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6 };
+      const c2 = { x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6 };
+      line += ` C${c1.x.toFixed(1)} ${c1.y.toFixed(1)} ${c2.x.toFixed(1)} ${c2.y.toFixed(1)} ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+    }
+    const area = `${line} L${pts.at(-1).x.toFixed(1)} ${floor} L${pts[0].x.toFixed(1)} ${floor} Z`;
+    const top = Math.min(...pts.map((p) => p.y));
+    const still = animate ? "" : ' style="animation:none;stroke-dashoffset:0;opacity:1"';
+
+    svg.setAttribute("width", box.width);
+    svg.setAttribute("height", box.height);
+    svg.innerHTML = `<defs><linearGradient id="hours-fill" gradientUnits="userSpaceOnUse" x1="0" y1="${top.toFixed(0)}" x2="0" y2="${floor.toFixed(0)}">
+        <stop offset="0" stop-color="var(--warm)" stop-opacity=".34"/><stop offset="1" stop-color="var(--warm)" stop-opacity="0"/></linearGradient></defs>
+      <path class="area" d="${area}"${still}/><path class="line" pathLength="1" d="${line}"${still}/>
+      ${pts.map((p) => `<circle data-i="${p.i}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4"/>`).join("")}`;
+    markHourDots();
+  }
+  const markHourDots = () => {
+    const current = state.preview ?? state.nowIndex;
+    document.querySelectorAll("#hours-curve circle").forEach((dot) => dot.classList.toggle("sel", Number(dot.dataset.i) === current));
+  };
+  addEventListener("resize", () => state.data && drawCurve());
+  document.fonts?.ready.then(() => state.data && drawCurve());
+
+  $("hours").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-i]");
+    if (b) travelTo(Number(b.dataset.i));
+  });
 
   function dayName(i, weekday = "short") {
     if (i === 0) return "Oggi";
@@ -587,26 +766,55 @@
     const c = data.current, h = data.hourly, d = data.daily;
     const vis = h.visibility[i];
     const dir = c.wind_direction_10m;
-    const arrow = `<svg class="arrow" viewBox="0 0 24 24" style="transform:rotate(${(dir + 180) % 360}deg)" aria-hidden="true"><path d="M12 3l6 16-6-4-6 4z" fill="currentColor"/></svg>`;
     const rainToday = d.precipitation_sum[0] ?? 0;
     const light = (new Date(d.sunset[0]) - new Date(d.sunrise[0])) / 60000;
     const moon = moonIllumination();
 
+    const compass = `<svg class="t-g" viewBox="0 0 64 64" aria-hidden="true">
+        <circle cx="32" cy="32" r="28" fill="none" stroke="currentColor" stroke-opacity=".18" stroke-width="2.5"/>
+        <g stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M32 4v6M32 54v6M4 32h6M54 32h6" stroke-opacity=".35"/></g>
+        <g transform="rotate(${(dir + 180) % 360} 32 32)"><g class="needle"><path d="M32 12l8 26-8-6-8 6z" fill="var(--warm)" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></g></g>
+      </svg>`;
+
+    // Fase lunare: mezzo disco illuminato più un'ellisse che disegna il terminatore.
+    const waxing = moon.phase < 0.5, rx = (20 * Math.abs(Math.cos(2 * Math.PI * moon.phase))).toFixed(1);
+    const lit = `M32 12 A20 20 0 0 ${waxing ? 1 : 0} 32 52 A${rx} 20 0 0 ${(moon.lit < 0.5) === waxing ? 0 : 1} 32 12Z`;
+    const moonSvg = `<svg class="t-g" viewBox="0 0 64 64" aria-hidden="true">
+        <circle cx="32" cy="32" r="20" fill="currentColor" fill-opacity=".1"/><path d="${lit}" fill="#F6E7A1"/>
+        <circle cx="32" cy="32" r="20" fill="none" stroke="currentColor" stroke-width="2.5"/></svg>`;
+
+    const waves = `<svg class="t-g" viewBox="0 0 64 64" aria-hidden="true"><g class="wave" fill="none" stroke="var(--blue)" stroke-width="3.5" stroke-linecap="round">
+        <path d="M-32 24q8-8 16 0t16 0 16 0 16 0 16 0 16 0 16 0"/><path d="M-32 38q8-8 16 0t16 0 16 0 16 0 16 0 16 0 16 0" stroke-opacity=".55"/><path d="M-32 52q8-8 16 0t16 0 16 0 16 0 16 0 16 0 16 0" stroke-opacity=".25"/></g></svg>`;
+
     const tiles = [
-      ["Vento", `${round(c.wind_speed_10m)}<small>km/h</small>`, `${arrow}da ${COMPASS[Math.round(dir / 45) % 8]} · raffiche ${round(c.wind_gusts_10m)}`],
+      ["Vento", `${round(c.wind_speed_10m)}<small>km/h</small>`, `da ${COMPASS[Math.round(dir / 45) % 8]} · raffiche ${round(c.wind_gusts_10m)}`, compass],
       ["Pioggia oggi", `${rainToday < 10 ? comma(rainToday) : round(rainToday)}<small>mm</small>`, `Probabilità ${d.precipitation_probability_max[0] ?? 0}%`],
       ["Umidità", `${round(c.relative_humidity_2m)}<small>%</small>`, c.relative_humidity_2m >= 75 ? "Aria umida" : c.relative_humidity_2m <= 35 ? "Aria secca" : "Confortevole"],
       ["Pressione", `${round(c.pressure_msl)}<small>hPa</small>`, c.pressure_msl >= 1020 ? "Alta pressione" : c.pressure_msl <= 1005 ? "Bassa pressione" : "Nella norma"],
       ["Visibilità", vis == null ? "—" : `${vis >= 10000 ? round(vis / 1000) : comma(vis / 1000)}<small>km</small>`, vis == null ? "" : vis >= 10000 ? "Ottima" : vis >= 4000 ? "Buona" : "Ridotta"],
-      ["Ore di luce", `${Math.floor(light / 60)}<small>h</small> ${String(Math.round(light % 60)).padStart(2, "0")}<small>min</small>`, `Alba ${hhmm(d.sunrise[0])} · tramonto ${hhmm(d.sunset[0])}`],
-      ["Luna", `${round(moon.lit * 100)}<small>%</small>`, MOON[Math.round(moon.phase * 8) % 8]],
+      ["Luna", `${round(moon.lit * 100)}<small>%</small>`, MOON[Math.round(moon.phase * 8) % 8], moonSvg],
     ];
     if (sea) {
       tiles.push(["Mare", sea.sea_surface_temperature == null ? "—" : `${round(sea.sea_surface_temperature)}°<small>acqua</small>`,
-        `Onde ${comma(sea.wave_height)} m · ${seaState(sea.wave_height)}`]);
+        `Onde ${comma(sea.wave_height)} m · ${seaState(sea.wave_height)}`, waves]);
     }
-    $("tiles").innerHTML = tiles.map(([title, value, sub], n) =>
-      `<div class="tile${tiles.length % 2 && n === tiles.length - 1 ? " odd" : ""}"><h3>${title}</h3><div class="t-val">${value}</div><div class="t-sub">${sub}</div></div>`).join("");
+
+    // Il percorso del sole: un arco dall'alba al tramonto con il sole nel punto in cui si trova ora.
+    const f = clamp01((new Date(c.time) - new Date(d.sunrise[0])) / (new Date(d.sunset[0]) - new Date(d.sunrise[0])));
+    const isUp = f > 0 && f < 1;
+    const sunTile = `<div class="tile sun-tile"><h3>Sole</h3>
+      <div class="t-val">${Math.floor(light / 60)}<small>h</small> ${String(Math.round(light % 60)).padStart(2, "0")}<small>min di luce</small></div>
+      <svg class="sun-arc" viewBox="0 0 300 122" style="--f:${f.toFixed(3)}" role="img" aria-label="Alba alle ${hhmm(d.sunrise[0])}, tramonto alle ${hhmm(d.sunset[0])}">
+        <path class="track" d="M30 96 A120 84 0 0 1 270 96"/>
+        <path class="done" pathLength="1" d="M30 96 A120 84 0 0 1 270 96"/>
+        <line x1="6" y1="96" x2="294" y2="96" stroke="currentColor" stroke-opacity=".25" stroke-width="2.5" stroke-linecap="round"/>
+        ${isUp ? `<g class="sun"><circle r="11" fill="#FFC533" stroke="currentColor" stroke-width="2.5"/></g>` : ""}
+        <text x="6" y="116">Alba ${hhmm(d.sunrise[0])}</text>
+        <text x="294" y="116" text-anchor="end">Tramonto ${hhmm(d.sunset[0])}</text>
+      </svg></div>`;
+
+    $("tiles").innerHTML = sunTile + tiles.map(([title, value, sub, graphic = ""], n) =>
+      `<div class="tile${tiles.length % 2 && n === tiles.length - 1 ? " odd" : ""}">${graphic}<h3>${title}</h3><div class="t-val">${value}</div><div class="t-sub">${sub}</div></div>`).join("");
   }
 
   /* ---------- Preferiti e condivisione ---------- */
@@ -656,6 +864,7 @@
 
   function selectDay(i) {
     state.selectedDay = i;
+    if (state.preview != null) { state.preview = null; renderSky(); }
     renderHours();
     document.querySelectorAll("#days button").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.day) === i)));
   }
@@ -886,20 +1095,16 @@
   }
 
   async function loadSummary(id) {
-    const headline = $("headline"), text = $("ai-text");
-    headline.innerHTML = '<span class="sk" style="width:90%;height:.9em"></span><span class="sk" style="width:60%;height:.9em"></span>';
-    text.innerHTML = '<span class="sk sk-line"></span><span class="sk sk-line short"></span>';
+    renderLead();
     $("ai-answer").hidden = true;
     $("ai-chips").hidden = true;
-    $("ai-badge").hidden = true;
 
     const ai = await askAI();
     if (id !== state.requestId) return;
 
-    state.headline = (ai?.title || localHeadline()).trim();
-    headline.textContent = state.headline;
-    typeInto(text, ai?.text.trim() ?? localSummary());
-    $("ai-badge").hidden = !ai;
+    state.summary = { title: (ai?.title || localHeadline()).trim(), text: ai?.text.trim() ?? localSummary(), ai: !!ai };
+    state.headline = state.summary.title;
+    if (state.preview == null) renderLead(true);
     $("ai-chips").hidden = false;
     $("ask").hidden = !state.aiAvailable;
     document.querySelectorAll("[data-ai-only]").forEach((el) => { el.hidden = !state.aiAvailable; });

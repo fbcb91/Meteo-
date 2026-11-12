@@ -58,7 +58,10 @@
           <div class="lead">
             <h2 id="headline" class="headline"><span class="sk" style="width:90%;height:.9em"></span><span class="sk" style="width:60%;height:.9em"></span></h2>
             <p id="ai-text" class="lead-text"><span class="sk sk-line"></span><span class="sk sk-line short"></span></p>
-            <p class="byline"><span id="ai-badge" class="badge" hidden>✦ scritto dall'AI</span></p>
+            <p class="byline">
+              <span id="ai-badge" class="badge" hidden>✦ scritto dall'AI</span>
+              <button id="back-now" class="back-now" type="button" hidden>← Torna ad adesso</button>
+            </p>
           </div>
           <div class="now">
             <div id="now-icon" class="now-icon"></div>
@@ -104,9 +107,13 @@
       <section class="card hourly full" aria-labelledby="hourly-title">
         <div class="card-head">
           <h2 id="hourly-title">Ora per ora</h2>
+          <span class="hint" id="hours-hint">tocca un'ora per viaggiare nel tempo</span>
           <button id="back-today" class="link" type="button" hidden>Torna a oggi</button>
         </div>
-        <ol id="hours" class="hours" tabindex="0" aria-label="Previsioni orarie"></ol>
+        <div id="hours-wrap" class="hours-wrap">
+          <svg id="hours-curve" class="hours-curve" aria-hidden="true"></svg>
+          <ol id="hours" class="hours" aria-label="Previsioni orarie"></ol>
+        </div>
       </section>
 
       <section class="card daily" aria-labelledby="daily-title">

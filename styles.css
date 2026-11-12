@@ -163,47 +163,46 @@ a { color: inherit; }
 .sky[data-art="night"]       { --sky: #23235c; --on: #f3eee4; --deep: #30307a; --cloud: #4a4a8f; }
 .sky[data-art="night-cloud"] { --sky: #2b2e3c; --on: #f3eee4; --deep: #383c4e; --cloud: #4c5166; }
 
-/* Decorazioni geometriche, sempre tono su tono per non disturbare il testo. */
-.sky-art { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
-.sky-art::before, .sky-art::after { content: ""; position: absolute; }
+/* La scena: forme piatte che si muovono. Generata da app.js (renderArt). */
+.sky-art { position: absolute; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; container-type: size; --cx: 84%; --cy: 110px; --moon: var(--deep); }
+@media (min-width: 760px) { .sky-art { --cx: 80%; --cy: 30%; --moon: #f6e7a1; } }
+.a-layer { position: absolute; inset: 0; translate: calc(var(--px, 0) * var(--d, 10) * 1px) calc(var(--py, 0) * var(--d, 10) * 1px); transition: translate .6s cubic-bezier(.2, .7, .2, 1); }
+.a-layer > * { position: absolute; }
 
-.sky[data-art="sun"] .sky-art::before,
-.sky[data-art="night"] .sky-art::before {
-  width: min(56%, 520px); aspect-ratio: 1; right: -9%; top: -38%; border-radius: 50%; background: var(--deep);
+.a-burst {
+  left: var(--cx); top: var(--cy); width: 2200px; height: 2200px; margin: -1100px 0 0 -1100px; border-radius: 50%;
+  background: repeating-conic-gradient(var(--deep) 0 5deg, transparent 5deg 15deg);
+  -webkit-mask-image: radial-gradient(circle, #000 0, #000 30%, transparent 62%); mask-image: radial-gradient(circle, #000 0, #000 30%, transparent 62%);
+  animation: spin 140s linear infinite;
 }
-.sky[data-art="sun"] .sky-art::after {
-  width: min(78%, 730px); aspect-ratio: 1; right: -20%; top: -62%; border-radius: 50%; border: 2px solid var(--deep);
-}
-.sky[data-art="night"] .sky-art::after {
-  width: min(50%, 460px); aspect-ratio: 1; right: 4%; top: -46%; border-radius: 50%; background: var(--sky);
-}
-.sky[data-art="night"] .sky-art {
-  background-image: radial-gradient(circle, var(--on) 1.1px, transparent 1.6px), radial-gradient(circle, var(--on) .8px, transparent 1.3px);
-  background-size: 190px 130px, 130px 170px; background-position: 20px 30px, 90px 80px; opacity: .55;
-}
-.sky[data-art="partly"] .sky-art::before,
-.sky[data-art="cloud"] .sky-art::before,
-.sky[data-art="night-cloud"] .sky-art::before {
-  width: min(46%, 440px); height: 96px; right: -6%; top: 26px; border-radius: 999px; background: var(--deep);
-}
-.sky[data-art="partly"] .sky-art::after,
-.sky[data-art="cloud"] .sky-art::after,
-.sky[data-art="night-cloud"] .sky-art::after {
-  width: min(36%, 340px); height: 96px; right: 16%; top: 96px; border-radius: 999px; background: var(--deep);
-}
-.sky[data-art="rain"] .sky-art, .sky[data-art="storm"] .sky-art {
-  background: repeating-linear-gradient(108deg, transparent 0 26px, var(--deep) 26px 30px);
-  -webkit-mask-image: linear-gradient(to left, #000, transparent 75%); mask-image: linear-gradient(to left, #000, transparent 75%);
-}
-.sky[data-art="fog"] .sky-art {
-  background: repeating-linear-gradient(0deg, transparent 0 22px, var(--deep) 22px 30px);
-  -webkit-mask-image: linear-gradient(to left, #000, transparent 70%); mask-image: linear-gradient(to left, #000, transparent 70%);
-}
-.sky[data-art="snow"] .sky-art {
-  background-image: radial-gradient(circle, var(--deep) 5px, transparent 5.5px), radial-gradient(circle, var(--deep) 3px, transparent 3.5px);
-  background-size: 84px 84px, 60px 60px; background-position: 0 0, 30px 40px;
-  -webkit-mask-image: linear-gradient(to left, #000, transparent 80%); mask-image: linear-gradient(to left, #000, transparent 80%);
-}
+.a-disc { left: var(--cx); top: var(--cy); width: clamp(170px, 27cqw, 330px); aspect-ratio: 1; margin: calc(clamp(170px, 27cqw, 330px) / -2) 0 0 calc(clamp(170px, 27cqw, 330px) / -2); border-radius: 50%; background: var(--disc, var(--deep)); }
+.a-ring { border: 2.5px solid var(--disc, var(--deep)); background: none; animation: ring 6s cubic-bezier(.2, .6, .3, 1) infinite; }
+.a-ring + .a-ring { animation-delay: -3s; }
+.a-moon { background: var(--moon); }
+.a-moon-cut { background: var(--sky); translate: -24% -14%; transition: background-color .6s ease; }
+.a-star { width: var(--s); height: var(--s); border-radius: 50%; background: var(--on); animation: twinkle var(--t) ease-in-out infinite; animation-delay: var(--dl); }
+.a-shoot { left: 30%; top: 8%; width: 120px; height: 2.5px; border-radius: 2px; background: linear-gradient(90deg, transparent, var(--on)); rotate: 18deg; opacity: 0; animation: shoot 11s ease-in infinite 3s; }
+.a-cloud { left: 0; height: var(--h); width: var(--w); top: var(--y); border-radius: 999px; background: var(--puff, var(--deep)); animation: drift var(--t) linear infinite; animation-delay: var(--dl); }
+.a-drop { top: -50px; width: 3.5px; height: var(--h); border-radius: 2px; background: var(--deep); rotate: 14deg; animation: fall var(--t) linear infinite; animation-delay: var(--dl); }
+.a-drop.hi { background: var(--on); opacity: .32; }
+.a-flake { top: -20px; width: var(--s); height: var(--s); border-radius: 50%; background: #fff; animation: snow var(--t) linear infinite; animation-delay: var(--dl); }
+.a-flash { inset: 0; background: #fff; opacity: 0; animation: flash 9s linear infinite 2s; }
+.a-band { left: -15%; width: 130%; height: var(--h); top: var(--y); border-radius: 999px; background: var(--deep); animation: sway var(--t) ease-in-out infinite alternate; animation-delay: var(--dl); }
+
+.sky[data-art="sun"] { --disc: #ff9d1c; }
+.sky[data-art="partly"] { --disc: #ffc533; --puff: #fff; }
+.sky[data-art="partly"] .a-burst { background: repeating-conic-gradient(var(--deep) 0 5deg, transparent 5deg 15deg); }
+.sky[data-art="snow"] { --deep: #c5dcee; }
+
+@keyframes spin { to { rotate: 360deg; } }
+@keyframes ring { from { scale: 1; opacity: .8; } to { scale: 1.9; opacity: 0; } }
+@keyframes twinkle { 50% { opacity: .15; scale: .6; } }
+@keyframes shoot { 0%, 88% { opacity: 0; translate: 0 0; } 90% { opacity: 1; } 96%, 100% { opacity: 0; translate: 260px 84px; } }
+@keyframes drift { from { translate: -100% 0; } to { translate: 100cqw 0; } }
+@keyframes fall { to { translate: -28cqh 112cqh; } }
+@keyframes snow { 50% { translate: 26px 56cqh; } to { translate: -10px 112cqh; } }
+@keyframes flash { 0%, 90%, 100% { opacity: 0; } 91% { opacity: .38; } 92% { opacity: .04; } 93.5% { opacity: .26; } 96% { opacity: 0; } }
+@keyframes sway { from { translate: -6% 0; } to { translate: 6% 0; } }
 
 .sky-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .sky h1 { font-size: 20px; font-weight: 800; letter-spacing: -.02em; line-height: 1.2; }
@@ -212,19 +211,23 @@ a { color: inherit; }
 .when::first-letter { text-transform: uppercase; }
 .sky-actions { display: flex; gap: 8px; }
 
-.sky-main { display: grid; gap: 22px; margin-top: clamp(22px, 4vw, 44px); grid-template-columns: minmax(0, 1fr); }
+.sky-main { display: grid; gap: 22px; margin-top: clamp(26px, 6vw, 84px); grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 760px) {
   .sky-main { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); align-items: end; gap: 32px; }
   .now { text-align: right; justify-items: end; }
 }
 
 .headline {
-  font-size: clamp(38px, 6.4vw, 78px); font-weight: 800; line-height: .96; letter-spacing: -.045em;
+  font-size: clamp(40px, 7.4vw, 96px); font-weight: 800; line-height: .94; letter-spacing: -.045em;
   text-wrap: balance; max-width: 13em;
 }
 .headline .sk { display: block; margin-bottom: .14em; }
+.headline .w { display: inline-block; overflow: hidden; vertical-align: bottom; padding: .1em .05em .16em 0; margin: -.1em -.05em -.16em 0; }
+.headline .w > span { display: inline-block; animation: word .8s cubic-bezier(.16, .84, .24, 1) backwards; animation-delay: calc(var(--i) * 75ms); }
+@keyframes word { from { translate: 0 115%; rotate: 6deg; font-weight: 300; } }
+.back-now { padding: 8px 14px; border-radius: 999px; border: 0; background: var(--on); color: var(--sky); font-size: 14px; font-weight: 700; }
 .lead-text { margin-top: 16px; max-width: 34em; font-size: clamp(17px, 1.7vw, 20px); font-weight: 500; line-height: 1.45; min-height: 2.9em; }
-.byline { min-height: 26px; margin-top: 12px; }
+.byline { min-height: 34px; margin-top: 12px; display: flex; align-items: center; gap: 10px; }
 .badge {
   display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: .01em;
   border: 1.5px solid color-mix(in srgb, var(--on) 35%, transparent);
@@ -247,6 +250,7 @@ a { color: inherit; }
   border-top: 1.5px solid color-mix(in srgb, var(--on) 22%, transparent);
   font-size: 15.5px; font-weight: 600;
 }
+.nowcast.off { visibility: hidden; }
 .nowcast-bars { display: flex; align-items: flex-end; gap: 3px; height: 28px; flex: none; }
 .nowcast-bars i { width: 7px; min-height: 3px; border-radius: 2px; background: var(--on); opacity: .28; }
 .nowcast-bars i.wet { opacity: 1; }
@@ -287,22 +291,36 @@ body[data-mode="night"] .alerts { background: #3a1d12; color: #ffd9c7; border-co
 .alerts-note { margin-top: 10px; font-size: 12.5px; opacity: .75; }
 .alerts li::before { content: ""; position: absolute; left: 2px; top: .52em; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
 
-/* ---------- Ora per ora ---------- */
+/* ---------- Ora per ora: una curva disegnata, ogni ora è un pulsante ---------- */
 
-.hours { display: flex; gap: 2px; overflow-x: auto; margin: 0 -10px -8px; padding: 0 10px 8px; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
-.hours li {
-  flex: none; width: 60px; padding: 10px 0 8px; border-radius: 16px; text-align: center;
+.hours-wrap { position: relative; overflow-x: auto; margin: 0 -10px -8px; padding: 0 10px 8px; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.hours { display: flex; gap: 2px; width: max-content; }
+.hours-curve { position: absolute; left: 10px; top: 0; pointer-events: none; overflow: visible; z-index: 1; }
+.hours-curve .line { fill: none; stroke: var(--ink); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 1.6s cubic-bezier(.4, 0, .2, 1) .2s forwards; }
+.hours-curve .area { fill: url(#hours-fill); opacity: 0; animation: fade-in .9s ease 1s forwards; }
+.hours-curve circle { fill: var(--surface); stroke: var(--ink); stroke-width: 2.5; }
+.hours-curve circle.sel { fill: var(--warm); }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes fade-in { to { opacity: 1; } }
+
+.hours button {
+  width: 60px; padding: 10px 0 8px; border: 0; border-radius: 16px; background: none; text-align: center;
   display: flex; flex-direction: column; align-items: center; gap: 5px;
+  transition: background-color .2s;
 }
-.hours li.is-now { background: var(--ink); color: var(--bg); --cloud: var(--bg); }
+.hours button:hover { background: var(--soft); }
+.hours button[aria-pressed="true"] { background: var(--soft); box-shadow: inset 0 0 0 2px var(--ink); }
 .hours .h-time { font-size: 13px; font-weight: 600; color: var(--muted); }
-.hours li.is-now .h-time { color: inherit; }
+.hours button[aria-pressed="true"] .h-time { color: var(--ink); font-weight: 800; }
 .hours svg { width: 32px; height: 32px; }
-/* La temperatura sale e scende con il valore: i numeri disegnano la curva della giornata. */
-.hours .h-track { height: 54px; display: flex; align-items: flex-end; }
-.hours .h-temp { font-size: 19px; font-weight: 800; letter-spacing: -.03em; font-variant-numeric: tabular-nums; transform: translateY(calc(var(--t) * -30px)); }
+.hours .h-track { height: 96px; display: flex; align-items: flex-end; padding-bottom: 26px; }
+.hours .h-temp { font-size: 19px; font-weight: 800; letter-spacing: -.03em; font-variant-numeric: tabular-nums; transform: translateY(calc(var(--t) * -42px)); }
+.hours .h-bar { width: 26px; height: 30px; display: flex; align-items: flex-end; border-radius: 6px; background: var(--soft); overflow: hidden; }
+.hours .h-bar i { width: 100%; height: calc(var(--p) * 1%); background: var(--blue); border-radius: 6px 6px 0 0; transform-origin: bottom; animation: grow .7s cubic-bezier(.2, .8, .2, 1) backwards; animation-delay: calc(var(--n) * 25ms + .3s); }
 .hours .h-rain { height: 16px; font-size: 12px; font-weight: 700; color: var(--blue); }
-.hours li.is-now .h-rain { color: inherit; }
+@keyframes grow { from { scale: 1 0; } }
+
+.hourly .card-head { flex-wrap: wrap; }
 
 /* ---------- 7 giorni ---------- */
 
@@ -367,6 +385,26 @@ body[data-mode="night"] .alerts { background: #3a1d12; color: #ffd9c7; border-co
 .tile .arrow { display: inline-block; width: 14px; height: 14px; vertical-align: -2px; margin-right: 3px; }
 .tile.odd { grid-column: 1 / -1; min-height: 0; }
 
+.tile { position: relative; transition: translate .2s cubic-bezier(.2, .8, .2, 1), box-shadow .2s, border-color .2s; }
+.card { transition: translate .2s cubic-bezier(.2, .8, .2, 1), box-shadow .2s, border-color .2s; }
+@media (hover: hover) {
+  .tile:hover, .card:hover { translate: -3px -3px; box-shadow: 6px 6px 0 var(--ink); border-color: var(--ink); }
+}
+.t-g { position: absolute; right: 14px; top: 14px; width: 62px; height: 62px; color: var(--ink); }
+.t-g .needle { transform-origin: 32px 32px; animation: wobble 2.6s ease-in-out infinite alternate; }
+@keyframes wobble { from { rotate: -6deg; } to { rotate: 6deg; } }
+.t-g .wave { animation: wave 3s linear infinite; }
+@keyframes wave { to { translate: -32px 0; } }
+
+.tile.sun-tile { grid-column: 1 / -1; padding-bottom: 12px; }
+.sun-arc { display: block; width: 100%; max-width: 420px; height: auto; margin: 4px auto 0; overflow: visible; }
+.sun-arc text { font: 600 11px "Bricolage Grotesque", system-ui, sans-serif; fill: var(--muted); }
+.sun-arc .track { fill: none; stroke: var(--line); stroke-width: 2.5; stroke-dasharray: 2 7; stroke-linecap: round; }
+.sun-arc .done { fill: none; stroke: var(--warm); stroke-width: 3.5; stroke-linecap: round; stroke-dasharray: var(--f) 1; animation: arc 1.6s cubic-bezier(.3, .7, .2, 1) .3s backwards; }
+.sun-arc .sun { offset-path: path("M30 96 A120 84 0 0 1 270 96"); offset-distance: calc(var(--f) * 100%); offset-rotate: 0deg; animation: travel 1.6s cubic-bezier(.3, .7, .2, 1) .3s backwards; }
+@keyframes arc { from { stroke-dasharray: 0 1; } }
+@keyframes travel { from { offset-distance: 0%; } }
+
 /* ---------- Piè di pagina, toast ---------- */
 
 .foot { margin-top: 30px; text-align: center; font-size: 13px; color: var(--muted); }
@@ -400,7 +438,7 @@ body[data-mode="night"] .alerts { background: #3a1d12; color: #ffd9c7; border-co
 
 @media (max-width: 480px) {
   .card { padding: 18px 16px; }
-  .hours li { width: 54px; }
+  .hours button { width: 54px; }
   .days button { gap: 7px; grid-template-columns: 2.9em 28px 2.4em 1.9em minmax(24px, 1fr) 1.9em 18px; }
   .sky h1 small { display: block; margin-left: 0; }
 }
