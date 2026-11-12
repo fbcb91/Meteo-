@@ -813,8 +813,10 @@
         <text x="294" y="116" text-anchor="end">Tramonto ${hhmm(d.sunset[0])}</text>
       </svg></div>`;
 
+    // Su desktop (4 colonne) i riquadri dell'ultima riga si allargano per non lasciare buchi.
+    const rest = tiles.length - 4;
     $("tiles").innerHTML = sunTile + tiles.map(([title, value, sub, graphic = ""], n) =>
-      `<div class="tile${tiles.length % 2 && n === tiles.length - 1 ? " odd" : ""}">${graphic}<h3>${title}</h3><div class="t-val">${value}</div><div class="t-sub">${sub}</div></div>`).join("");
+      `<div class="tile${tiles.length % 2 && n === tiles.length - 1 ? " odd" : ""}${n >= 4 && (rest === 2 || n === tiles.length - 1) && rest !== 4 ? " fill" : ""}">${graphic}<h3>${title}</h3><div class="t-val">${value}</div><div class="t-sub">${sub}</div></div>`).join("");
   }
 
   /* ---------- Preferiti e condivisione ---------- */
@@ -1149,7 +1151,57 @@
     return store.get("cielo:last", null) ?? DEFAULT_PLACE;
   }
 
+  /* ---------- Italia adesso ---------- */
+
+  const ITALY = [
+    ["Roma", "Lazio", 41.89, 12.48], ["Milano", "Lombardia", 45.46, 9.19], ["Napoli", "Campania", 40.85, 14.27],
+    ["Torino", "Piemonte", 45.07, 7.69], ["Palermo", "Sicilia", 38.12, 13.36], ["Bologna", "Emilia-Romagna", 44.49, 11.34],
+    ["Firenze", "Toscana", 43.77, 11.26], ["Venezia", "Veneto", 45.44, 12.33], ["Bari", "Puglia", 41.12, 16.87],
+    ["Cagliari", "Sardegna", 39.22, 9.12],
+  ];
+
+  async function loadItaly() {
+    try {
+      // Una sola richiesta per tutte le città, tenuta in memoria per un quarto d'ora.
+      let cached = null;
+      try { cached = JSON.parse(sessionStorage.getItem("cielo:italy")); } catch { /* nessuna cache */ }
+      let rows = cached && Date.now() - cached.at < 15 * 60 * 1000 ? cached.rows : null;
+      if (!rows) {
+        const p = new URLSearchParams({
+          latitude: ITALY.map((c) => c[2]).join(","), longitude: ITALY.map((c) => c[3]).join(","),
+          current: "temperature_2m,weather_code,is_day", timezone: "auto",
+        });
+        const json = await getJSON(`https://api.open-meteo.com/v1/forecast?${p}`);
+        rows = (Array.isArray(json) ? json : [json]).map((r) => r.current);
+        if (rows.length !== ITALY.length) return;
+        try { sessionStorage.setItem("cielo:italy", JSON.stringify({ at: Date.now(), rows })); } catch { /* storage non disponibile */ }
+      }
+      $("italy").innerHTML = ITALY.map(([name], i) =>
+        `<li><button type="button" data-city="${i}"><span>${name}</span>${icon(rows[i].weather_code, !!rows[i].is_day)}<span class="i-temp">${round(rows[i].temperature_2m)}°</span></button></li>`).join("");
+      $("italia").hidden = false;
+    } catch { /* sezione facoltativa: senza dati resta nascosta */ }
+  }
+
+  $("italy").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-city]");
+    if (!b) return;
+    const [name, admin, lat, lon] = ITALY[Number(b.dataset.city)];
+    load({ name, admin, country: "Italia", lat, lon });
+    scrollTo({ top: 0, behavior: reducedMotion ? "auto" : "smooth" });
+  });
+
+  // Evidenzia nella barra di navigazione la sezione che si sta guardando.
+  const navLinks = [...document.querySelectorAll(".site-nav a")];
+  const spy = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      navLinks.forEach((a) => a.setAttribute("aria-current", String(a.getAttribute("href") === `#${entry.target.id}`)));
+    }
+  }, { rootMargin: "-45% 0px -50% 0px" });
+  navLinks.forEach((a) => { const target = document.querySelector(a.getAttribute("href")); if (target) spy.observe(target); });
+
   load(initialPlace());
+  loadItaly();
 
   // Aggiorna i dati quando si torna sulla scheda dopo un po'.
   let loadedAt = Date.now();

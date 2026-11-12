@@ -73,7 +73,7 @@ a { color: inherit; }
 
 .top { display: flex; align-items: center; gap: 10px; }
 
-.brand { font-size: 28px; font-weight: 800; letter-spacing: -.05em; text-decoration: none; line-height: 1; }
+.brand { flex: none; white-space: nowrap; font-size: 28px; font-weight: 800; letter-spacing: -.05em; text-decoration: none; line-height: 1; }
 .brand i { display: inline-block; width: .26em; height: .26em; margin-left: .06em; border-radius: 50%; background: var(--warm); }
 
 .search {
@@ -373,6 +373,19 @@ body[data-mode="night"] .alerts { background: #3a1d12; color: #ffd9c7; border-co
   background: linear-gradient(90deg, #35b56a, #b5cf3f 25%, #f2c230 45%, #f08a00 65%, #d9402b 85%, #8e2aa8); }
 .scale i { position: absolute; top: -4px; width: 6px; height: 16px; margin-left: -3px; border-radius: 3px; background: var(--ink); border: 1.5px solid var(--surface); }
 
+/* ---------- Italia adesso ---------- */
+
+.italy-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 18px; }
+.italy-list button {
+  width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 30px 2.4em; align-items: center; gap: 8px;
+  padding: 9px 8px; margin: 0 -8px; border: 0; border-radius: 12px; background: none; text-align: left; font-weight: 700;
+}
+.italy-list button:hover { background: var(--soft); }
+.italy-list li { border-top: 1.5px solid var(--soft); }
+.italy-list li:nth-child(-n+2) { border-top: 0; }
+.italy-list svg { width: 30px; height: 30px; display: block; }
+.italy-list .i-temp { text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; }
+
 /* ---------- Dettagli ---------- */
 
 .tiles { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); height: 100%; }
@@ -407,7 +420,10 @@ body[data-mode="night"] .alerts { background: #3a1d12; color: #ffd9c7; border-co
 
 /* ---------- Piè di pagina, toast ---------- */
 
-.foot { margin-top: 30px; text-align: center; font-size: 13px; color: var(--muted); }
+.foot { margin-top: 30px; font-size: 14px; color: var(--muted); line-height: 1.5; }
+.foot-in { display: grid; gap: 22px; padding-top: 22px; border-top: 1.5px solid var(--line); }
+.foot h2 { font-size: 14px; font-weight: 800; color: var(--ink); margin-bottom: 4px; }
+.foot .brand { color: var(--ink); margin-bottom: 8px; }
 
 .toast {
   position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 50;
@@ -441,4 +457,97 @@ body[data-mode="night"] .alerts { background: #3a1d12; color: #ffd9c7; border-co
   .hours button { width: 54px; }
   .days button { gap: 7px; grid-template-columns: 2.9em 28px 2.4em 1.9em minmax(24px, 1fr) 1.9em 18px; }
   .sky h1 small { display: block; margin-left: 0; }
+}
+
+/* ============================================================
+   Desktop: un sito, non un'app.
+   Barra di navigazione fissa, cielo a tutta larghezza, fasce orizzontali.
+   Sotto i 1000px resta l'impianto compatto a schede.
+   ============================================================ */
+
+.site-nav { display: none; }
+html { scroll-behavior: smooth; }
+section[id] { scroll-margin-top: 90px; }
+
+@media (min-width: 1000px) {
+  .wrap { max-width: none; padding: 0; }
+  .top, .favs, .status, .foot-in { padding-inline: max(32px, calc((100% - 1280px) / 2)); }
+
+  .top { position: sticky; top: 0; z-index: 30; gap: 28px; padding-block: 14px; background: var(--bg); border-bottom: 1.5px solid var(--line); transition: background-color .6s ease; }
+  .brand { font-size: 32px; }
+  .site-nav { display: flex; gap: 4px; margin-right: auto; }
+  .site-nav a { padding: 9px 13px; border-radius: 999px; font-size: 15px; font-weight: 600; text-decoration: none; white-space: nowrap; }
+  .site-nav a:hover { background: var(--soft); }
+  @media (max-width: 1180px) { .top { gap: 14px; } .site-nav { gap: 0; } .site-nav a { padding: 8px 9px; font-size: 14px; } }
+  .site-nav a[aria-current="true"] { background: var(--ink); color: var(--bg); }
+  .search { flex: 0 1 300px; min-width: 190px; margin-left: 0; }
+  .favs { margin: 0; padding-block: 10px; }
+  .status { margin: 16px max(32px, calc((100% - 1280px) / 2)); padding-inline: 18px; }
+
+  .grid {
+    margin-top: 0; gap: 0; row-gap: 26px;
+    grid-template-columns: minmax(32px, 1fr) minmax(0, 628px) 24px minmax(0, 628px) minmax(32px, 1fr);
+  }
+  .grid > * { grid-column: 2 / 5; }
+  .grid > .daily, .grid > .health { grid-column: 2; }
+  .grid > .moments, .grid > .italy { grid-column: 4; }
+
+  /* Il cielo occupa tutta la finestra. */
+  .grid > .sky {
+    grid-column: 1 / -1; border-radius: 0; min-height: min(78vh, 780px);
+    display: flex; flex-direction: column;
+    padding: 34px max(32px, calc((100% - 1280px) / 2)) 84px;
+  }
+  .sky-art { --cx: 76%; --cy: 38%; }
+  .a-disc { width: clamp(260px, 26cqw, 420px); margin: calc(clamp(260px, 26cqw, 420px) / -2) 0 0 calc(clamp(260px, 26cqw, 420px) / -2); }
+  .sky h1 { font-size: 26px; }
+  .sky h1 small, .when { font-size: 17px; }
+  .sky-main { margin-top: auto; padding-top: 40px; }
+  .headline { font-size: clamp(76px, 8.2vw, 136px); letter-spacing: -.05em; }
+  .lead-text { font-size: 22px; max-width: 30em; margin-top: 22px; }
+  .now-temp { font-size: clamp(120px, 12vw, 176px); }
+  .now-icon { width: 112px; }
+  .now-label { font-size: 24px; }
+  .now-meta { font-size: 17px; }
+  .nowcast { font-size: 17px; }
+
+  /* La domanda a cavallo del bordo del cielo, come una barra di ricerca. */
+  .grid > .askbar { justify-self: center; width: min(100%, 860px); justify-items: center; }
+  .grid > .askbar:has(.ask:not([hidden])) { margin-top: -56px; position: relative; z-index: 2; }
+  .askbar .ask { order: -1; width: 100%; height: 64px; border-radius: 22px; padding-left: 26px; }
+  .askbar .ask input { font-size: 19px; }
+  .askbar .ask button { width: 46px; height: 46px; }
+  .askbar .chips { justify-content: center; }
+  .askbar .ai-answer { width: 100%; }
+
+  /* Ora per ora: una fascia da bordo a bordo, 24 ore senza scorrere. */
+  .grid > .hourly {
+    grid-column: 1 / -1; border-radius: 0; border-inline: 0;
+    padding: 34px max(32px, calc((100% - 1280px) / 2));
+  }
+  .hourly:hover { translate: none; box-shadow: none; border-color: var(--line); }
+  .hours { width: 100%; }
+  .hours li { flex: 1; min-width: 0; }
+  .hours button { width: 100%; }
+  .hours-wrap { overflow-x: visible; margin: 0; padding: 0; }
+  .hours-curve { left: 0; }
+
+  .card { padding: 30px; }
+  .card-head { margin-bottom: 20px; }
+  .card-head h2 { font-size: 30px; }
+  .hourly .card-head h2 { font-size: 36px; }
+  .days button { padding-block: 12px; font-size: 17px; }
+  .m-name, .hl-name, .hl-val { font-size: 18px; }
+
+  .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .tile.sun-tile { grid-column: span 2; grid-row: span 2; }
+  .tile.odd { grid-column: auto; }
+  .tile.fill { grid-column: span 2; }
+  .tile.fill:only-of-type { grid-column: span 4; }
+  .health { align-self: stretch; }
+
+  .foot { margin-top: 56px; background: var(--ink); color: color-mix(in srgb, var(--bg) 70%, transparent); font-size: 15px; transition: background-color .6s ease; }
+  .foot-in { grid-template-columns: 1.2fr 1fr 1fr; gap: 48px; padding-block: 48px 56px; border-top: 0; }
+  .foot h2 { color: var(--bg); font-size: 15px; margin-bottom: 8px; }
+  .foot .brand { color: var(--bg); font-size: 44px; margin-bottom: 12px; }
 }

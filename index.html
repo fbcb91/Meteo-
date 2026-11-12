@@ -17,6 +17,15 @@
     <header class="top">
       <a class="brand" href="./" aria-label="Cielo, home">cielo<i></i></a>
 
+      <nav class="site-nav" aria-label="Sezioni">
+        <a href="#sky">Adesso</a>
+        <a href="#ora">Ora per ora</a>
+        <a href="#giorni">7 giorni</a>
+        <a href="#momenti">Il momento giusto</a>
+        <a href="#aria">Aria e salute</a>
+        <a href="#italia">Italia</a>
+      </nav>
+
       <form class="search" id="search" role="search" autocomplete="off">
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
         <input id="q" type="search" placeholder="Cerca una città…" aria-label="Cerca una città"
@@ -104,7 +113,7 @@
         <p class="alerts-note">Segnalazioni calcolate da Cielo sulle previsioni: non sostituiscono le allerte ufficiali della Protezione Civile.</p>
       </section>
 
-      <section class="card hourly full" aria-labelledby="hourly-title">
+      <section id="ora" class="card hourly full" aria-labelledby="hourly-title">
         <div class="card-head">
           <h2 id="hourly-title">Ora per ora</h2>
           <span class="hint" id="hours-hint">tocca un'ora per viaggiare nel tempo</span>
@@ -116,7 +125,7 @@
         </div>
       </section>
 
-      <section class="card daily" aria-labelledby="daily-title">
+      <section id="giorni" class="card daily" aria-labelledby="daily-title">
         <div class="card-head"><h2 id="daily-title">Prossimi 7 giorni</h2></div>
         <ol id="days" class="days"></ol>
         <p id="trust-note" class="note" hidden>
@@ -125,7 +134,7 @@
         </p>
       </section>
 
-      <section class="card moments" aria-labelledby="moments-title">
+      <section id="momenti" class="card moments" aria-labelledby="moments-title">
         <div class="card-head">
           <h2 id="moments-title">Il momento giusto</h2>
           <span class="hint">prossime 24 ore</span>
@@ -134,9 +143,17 @@
         <div id="moments-axis" class="moments-axis" aria-hidden="true"></div>
       </section>
 
-      <section class="card health" aria-labelledby="health-title">
+      <section id="aria" class="card health" aria-labelledby="health-title">
         <div class="card-head"><h2 id="health-title">Aria e salute</h2></div>
         <div id="health" class="health-list"></div>
+      </section>
+
+      <section id="italia" class="card italy" aria-labelledby="italy-title" hidden>
+        <div class="card-head">
+          <h2 id="italy-title">Italia adesso</h2>
+          <span class="hint">scegli una città</span>
+        </div>
+        <ul id="italy" class="italy-list"></ul>
       </section>
 
       <section class="details" aria-label="Dettagli">
@@ -145,7 +162,20 @@
     </main>
 
     <footer class="foot">
-      <p>Dati di <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0). Nessuna pubblicità, nessun tracciamento. <span id="ai-note"></span></p>
+      <div class="foot-in">
+        <div class="foot-brand">
+          <p class="brand">cielo<i></i></p>
+          <p>Il meteo che ti risponde: prima cosa fare, poi i numeri.</p>
+        </div>
+        <div>
+          <h2>Come funziona</h2>
+          <p>Le previsioni confrontano i modelli ECMWF, ICON e GFS: quando non concordano te lo diciamo, con le tacche di affidabilità accanto a ogni giorno.</p>
+        </div>
+        <div>
+          <h2>In chiaro</h2>
+          <p>Nessuna pubblicità, nessun tracciamento. Dati di <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0). <span id="ai-note"></span></p>
+        </div>
+      </div>
     </footer>
   </div>
 

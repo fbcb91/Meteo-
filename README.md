@@ -9,6 +9,8 @@ Il meteo che ti risponde: prima una frase chiara su cosa aspettarti, poi i numer
 - **Da tenere d'occhio**: vento forte, piogge abbondanti, gelo, caldo, UV (segnalazioni calcolate, non allerte ufficiali)
 - **Aria e salute**: qualità dell'aria, UV con orari di protezione, pollini
 - Ora per ora, 7 giorni, confronto con ieri, mare (vicino alla costa), luna, ore di luce
+- **Italia adesso**: le principali città a colpo d'occhio
+- Su desktop è un sito (navigazione fissa, cielo a tutta larghezza, fasce orizzontali); su telefono resta compatto come un'app
 - Ricerca città, posizione, preferiti, condivisione, installabile come app
 - **Chiedi a Cielo**: domande libere ("Posso grigliare sabato sera?")
 
