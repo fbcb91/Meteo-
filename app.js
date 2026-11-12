@@ -8,10 +8,13 @@
 
   const state = {
     place: null,
-    data: null,        // risposta Open-Meteo
-    air: null,
+    data: null,        // previsioni Open-Meteo (giornaliere già allineate a "oggi")
+    air: null,         // qualità dell'aria e pollini
+    sea: null,         // onde e temperatura dell'acqua, solo vicino alla costa
+    trust: null,       // affidabilità per giorno (1–3), dal confronto tra modelli
     nowIndex: 0,       // indice dell'ora corrente negli array orari
     selectedDay: 0,
+    headline: "",
     aiAvailable: null, // null = non ancora verificato
     requestId: 0,
   };
@@ -29,9 +32,12 @@
 
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const round = (n) => Math.round(n);
+  const comma = (n, digits = 1) => n.toFixed(digits).replace(".", ",");
+  const clamp01 = (x) => Math.max(0, Math.min(1, x));
   const hourOf = (iso) => iso.slice(11, 13);
   const hhmm = (iso) => iso.slice(11, 16);
   const samePlace = (a, b) => a && b && Math.abs(a.lat - b.lat) < 0.02 && Math.abs(a.lon - b.lon) < 0.02;
+  const gradi = (n) => `${n} ${Math.abs(n) === 1 ? "grado" : "gradi"}`;
 
   async function getJSON(url, { timeout = 12000, signal } = {}) {
     const ctrl = new AbortController();
@@ -44,6 +50,22 @@
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  function kmBetween(lat1, lon1, lat2, lon2) {
+    const rad = Math.PI / 180;
+    const a = Math.sin(((lat2 - lat1) * rad) / 2) ** 2 +
+      Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(((lon2 - lon1) * rad) / 2) ** 2;
+    return 12742 * Math.asin(Math.sqrt(a));
+  }
+
+  let toastTimer = 0;
+  function toast(message) {
+    const el = $("toast");
+    el.textContent = message;
+    el.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
   }
 
   /* ---------- Codici meteo (WMO) ---------- */
@@ -72,166 +94,140 @@
     return "storm";
   }
   const isWet = (code) => ["drizzle", "rain", "storm"].includes(kind(code));
+  const isSnow = (code) => kind(code) === "snow";
 
-  /* ---------- Icone SVG ---------- */
+  /* ---------- Icone: forme piene con contorno a inchiostro ---------- */
 
   const CLOUD = "M20 46h26a10 10 0 0 0 1-20 14 14 0 0 0-27-3 11.5 11.5 0 0 0 0 23z";
+  const INK = 'stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"';
 
   function sun(cx, cy, r) {
     let rays = "";
     for (let i = 0; i < 8; i++) {
-      const a = (i * Math.PI) / 4;
-      const x1 = cx + Math.cos(a) * (r + 4), y1 = cy + Math.sin(a) * (r + 4);
-      const x2 = cx + Math.cos(a) * (r + 9), y2 = cy + Math.sin(a) * (r + 9);
-      rays += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"/>`;
+      const a = (i * Math.PI) / 4, cos = Math.cos(a), sin = Math.sin(a);
+      rays += `<line x1="${(cx + cos * (r + 5)).toFixed(1)}" y1="${(cy + sin * (r + 5)).toFixed(1)}" x2="${(cx + cos * (r + 10)).toFixed(1)}" y2="${(cy + sin * (r + 10)).toFixed(1)}"/>`;
     }
-    return `<g stroke="#FFD54A" stroke-width="3.5" stroke-linecap="round">${rays}</g><circle cx="${cx}" cy="${cy}" r="${r}" fill="#FFD54A"/>`;
+    return `<g ${INK}>${rays}<circle cx="${cx}" cy="${cy}" r="${r}" fill="#FFC533"/></g>`;
   }
   const moon = (tx, ty, s) =>
-    `<path transform="translate(${tx} ${ty}) scale(${s})" d="M38 8a22 22 0 1 0 18 34A18 18 0 0 1 38 8z" fill="#E9E6FF"/>`;
-  const cloud = (transform = "", fill = "#fff") => `<path transform="${transform}" d="${CLOUD}" fill="${fill}"/>`;
+    `<path transform="translate(${tx} ${ty}) scale(${s})" d="M38 8a22 22 0 1 0 18 34A18 18 0 0 1 38 8z" fill="#F6E7A1" ${INK}/>`;
+  const cloud = (transform = "") => `<path transform="${transform}" d="${CLOUD}" fill="var(--cloud)" ${INK}/>`;
   const drops = (n) => {
-    const xs = n === 2 ? [26, 40] : [22, 33, 44];
-    return `<g stroke="#8FD3FF" stroke-width="3.5" stroke-linecap="round">${xs.map((x) => `<line x1="${x}" y1="47" x2="${x - 3}" y2="56"/>`).join("")}</g>`;
+    const xs = n === 2 ? [27, 41] : [23, 34, 45];
+    return `<g stroke="var(--drop)" stroke-width="3.5" stroke-linecap="round">${xs.map((x) => `<line x1="${x}" y1="48" x2="${x - 3}" y2="57"/>`).join("")}</g>`;
   };
-  const flakes = () => `<g fill="#fff">${[[22, 50], [33, 55], [44, 50]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="3"/>`).join("")}</g>`;
+  const flakes = () => `<g fill="currentColor">${[[22, 51], [33, 56], [44, 51]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="3"/>`).join("")}</g>`;
 
   function icon(code, isDay = true) {
-    const k = kind(code);
     let body;
-    switch (k) {
+    switch (kind(code)) {
       case "clear":
-        body = isDay ? sun(32, 32, 13) : moon(0, 0, 1);
+        body = isDay ? sun(32, 32, 12) : moon(0, 0, 1);
         break;
       case "partly":
-        body = (isDay ? sun(24, 24, 9) : moon(4, 2, 0.55)) + cloud("translate(10 14) scale(.82)");
+        body = (isDay ? sun(23, 23, 8) : moon(4, 2, 0.55)) + cloud("translate(10 14) scale(.82)");
         break;
       case "cloudy":
-        body = cloud("translate(14 2) scale(.7)", "rgba(255,255,255,.6)") + cloud("translate(0 6)");
+        body = cloud("translate(16 2) scale(.68)") + cloud("translate(0 7)");
         break;
       case "fog":
-        body = cloud("translate(0 -6)", "rgba(255,255,255,.85)") +
-          `<g stroke="#fff" stroke-opacity=".8" stroke-width="3.5" stroke-linecap="round"><line x1="14" y1="48" x2="50" y2="48"/><line x1="20" y1="56" x2="44" y2="56"/></g>`;
+        body = cloud("translate(0 -7)") + `<g ${INK}><line x1="14" y1="48" x2="50" y2="48"/><line x1="20" y1="56" x2="44" y2="56"/></g>`;
         break;
       case "drizzle":
         body = cloud("translate(0 -8)") + drops(2);
         break;
       case "rain":
-        body = cloud("translate(0 -8)", "#E6EEF7") + drops(3);
+        body = cloud("translate(0 -8)") + drops(3);
         break;
       case "snow":
         body = cloud("translate(0 -8)") + flakes();
         break;
-      default: // storm
-        body = cloud("translate(0 -8)", "#D5DCE8") + `<path d="M34 40l-9 12h7l-3 10 11-14h-7l4-8z" fill="#FFD54A"/>`;
+      default: // temporale
+        body = cloud("translate(0 -8)") + `<path d="M34 39l-9 12h7l-3 11 11-15h-7l4-8z" fill="#FFC533" ${INK} stroke-width="2.5"/>`;
     }
     return `<svg viewBox="0 0 64 64" role="img" aria-label="${esc(label(code))}">${body}</svg>`;
   }
 
-  /* ---------- Tema e sfondo animato ---------- */
-
-  function themeFor(code, isDay) {
+  function artFor(code, isDay) {
     switch (kind(code)) {
-      case "clear": case "partly": return [isDay ? "clear-day" : "clear-night", isDay ? "none" : "stars"];
-      case "cloudy": return [isDay ? "cloudy-day" : "cloudy-night", "none"];
-      case "fog": return [isDay ? "fog" : "cloudy-night", "none"];
-      case "drizzle": case "rain": return ["rain", "rain"];
-      case "snow": return [isDay ? "snow" : "cloudy-night", "snow"];
-      default: return ["storm", "rain"];
+      case "clear": return isDay ? "sun" : "night";
+      case "partly": return isDay ? "partly" : "night";
+      case "cloudy": return isDay ? "cloud" : "night-cloud";
+      case "fog": return isDay ? "fog" : "night-cloud";
+      case "drizzle": case "rain": return "rain";
+      case "snow": return isDay ? "snow" : "night-cloud";
+      default: return "storm";
     }
   }
 
-  const fx = (() => {
-    const canvas = $("fx");
-    const ctx = canvas.getContext("2d");
-    let mode = "none", parts = [], w = 0, h = 0, raf = 0, last = 0;
-
-    function resize() {
-      const dpr = Math.min(devicePixelRatio || 1, 2);
-      w = innerWidth; h = innerHeight;
-      canvas.width = w * dpr; canvas.height = h * dpr;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      seed();
-    }
-
-    function seed() {
-      const area = (w * h) / 10000;
-      const rnd = Math.random;
-      if (mode === "rain") {
-        parts = Array.from({ length: Math.min(160, area * 1.1) }, () => ({ x: rnd() * (w + 200), y: rnd() * h, v: 700 + rnd() * 500, l: 10 + rnd() * 14, o: 0.15 + rnd() * 0.3 }));
-      } else if (mode === "snow") {
-        parts = Array.from({ length: Math.min(110, area * 0.7) }, () => ({ x: rnd() * w, y: rnd() * h, v: 25 + rnd() * 45, r: 1 + rnd() * 2.2, p: rnd() * 6.28, o: 0.4 + rnd() * 0.5 }));
-      } else if (mode === "stars") {
-        parts = Array.from({ length: Math.min(130, area * 0.9) }, () => ({ x: rnd() * w, y: rnd() * h * 0.75, r: 0.4 + rnd() * 1.1, p: rnd() * 6.28, s: 0.5 + rnd() * 1.5 }));
-      } else {
-        parts = [];
-      }
-    }
-
-    function frame(t) {
-      const dt = Math.min((t - last) / 1000, 0.05);
-      last = t;
-      ctx.clearRect(0, 0, w, h);
-      if (mode === "rain") {
-        ctx.strokeStyle = "#cfe6ff"; ctx.lineWidth = 1.2; ctx.lineCap = "round";
-        for (const p of parts) {
-          p.y += p.v * dt; p.x -= p.v * dt * 0.18;
-          if (p.y > h) { p.y = -20; p.x = Math.random() * (w + 200); }
-          ctx.globalAlpha = p.o;
-          ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.l * 0.18, p.y + p.l); ctx.stroke();
-        }
-      } else if (mode === "snow") {
-        ctx.fillStyle = "#fff";
-        for (const p of parts) {
-          p.y += p.v * dt; p.p += dt; p.x += Math.sin(p.p) * 12 * dt;
-          if (p.y > h + 4) { p.y = -4; p.x = Math.random() * w; }
-          ctx.globalAlpha = p.o;
-          ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.28); ctx.fill();
-        }
-      } else if (mode === "stars") {
-        ctx.fillStyle = "#fff";
-        for (const p of parts) {
-          ctx.globalAlpha = 0.35 + 0.5 * Math.abs(Math.sin(p.p + (t / 1000) * p.s));
-          ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.28); ctx.fill();
-        }
-      }
-      ctx.globalAlpha = 1;
-      if (mode !== "none" && !reducedMotion && !document.hidden) raf = requestAnimationFrame(frame);
-    }
-
-    function start() {
-      cancelAnimationFrame(raf);
-      last = performance.now();
-      raf = requestAnimationFrame(frame);
-    }
-
-    addEventListener("resize", () => { resize(); start(); });
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) start(); });
-    resize();
-
-    return {
-      set(next) {
-        if (next === mode) return;
-        mode = next; seed(); start();
-      },
-    };
-  })();
-
   /* ---------- Dati ---------- */
 
-  function forecastURL({ lat, lon }) {
+  const coords = ({ lat, lon }) => ({ latitude: lat, longitude: lon, timezone: "auto" });
+
+  function forecastURL(place) {
     const p = new URLSearchParams({
-      latitude: lat, longitude: lon, timezone: "auto", forecast_days: 7, wind_speed_unit: "kmh",
+      ...coords(place), forecast_days: 7, past_days: 1, wind_speed_unit: "kmh",
       current: "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m",
-      hourly: "temperature_2m,apparent_temperature,relative_humidity_2m,precipitation_probability,precipitation,weather_code,is_day,wind_speed_10m,uv_index,visibility",
-      daily: "weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_probability_max,wind_speed_10m_max",
+      minutely_15: "precipitation",
+      hourly: "temperature_2m,apparent_temperature,relative_humidity_2m,precipitation_probability,precipitation,weather_code,is_day,cloud_cover,wind_speed_10m,wind_gusts_10m,uv_index,visibility",
+      daily: "weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum,snowfall_sum,precipitation_probability_max,wind_gusts_10m_max",
     });
     return `https://api.open-meteo.com/v1/forecast?${p}`;
   }
 
-  function airURL({ lat, lon }) {
-    const p = new URLSearchParams({ latitude: lat, longitude: lon, timezone: "auto", current: "european_aqi,pm10,pm2_5" });
+  function airURL(place) {
+    const p = new URLSearchParams({
+      ...coords(place), forecast_days: 1,
+      current: "european_aqi,pm10,pm2_5,nitrogen_dioxide,ozone",
+      hourly: "alder_pollen,birch_pollen,grass_pollen,mugwort_pollen,olive_pollen,ragweed_pollen",
+    });
     return `https://air-quality-api.open-meteo.com/v1/air-quality?${p}`;
+  }
+
+  function seaURL(place) {
+    const p = new URLSearchParams({ ...coords(place), current: "wave_height,sea_surface_temperature" });
+    return `https://marine-api.open-meteo.com/v1/marine?${p}`;
+  }
+
+  // Stessa previsione chiesta a tre modelli diversi: se concordano, ci si può fidare di più.
+  function modelsURL(place) {
+    const p = new URLSearchParams({
+      ...coords(place), forecast_days: 7,
+      daily: "temperature_2m_max,precipitation_sum",
+      models: "ecmwf_ifs025,icon_seamless,gfs_seamless",
+    });
+    return `https://api.open-meteo.com/v1/forecast?${p}`;
+  }
+
+  // Con past_days=1 il primo giorno è ieri: lo mettiamo da parte e allineiamo tutto a oggi.
+  function alignToToday(data) {
+    const today = data.current.time.slice(0, 10);
+    const t0 = Math.max(0, data.daily.time.indexOf(today));
+    data.yesterday = t0 > 0 ? { max: data.daily.temperature_2m_max[t0 - 1], min: data.daily.temperature_2m_min[t0 - 1] } : null;
+    for (const key of Object.keys(data.daily)) {
+      if (Array.isArray(data.daily[key])) data.daily[key] = data.daily[key].slice(t0);
+    }
+    return data;
+  }
+
+  function trustFrom(models, days) {
+    if (!models?.daily) return null;
+    const series = (prefix) => Object.keys(models.daily).filter((k) => k.startsWith(prefix + "_")).map((k) => models.daily[k]);
+    const temps = series("temperature_2m_max"), rains = series("precipitation_sum");
+    if (temps.length < 2) return null;
+    return days.map((day) => {
+      const i = models.daily.time.indexOf(day);
+      if (i < 0) return null;
+      const t = temps.map((s) => s[i]).filter((v) => v != null);
+      const r = rains.map((s) => s[i]).filter((v) => v != null);
+      if (t.length < 2) return null;
+      const spread = Math.max(...t) - Math.min(...t);
+      const split = r.some((v) => v >= 1) && r.some((v) => v < 0.2); // qualcuno dice pioggia, qualcuno asciutto
+      const heavy = Math.max(0, ...r) >= 5;
+      if (spread <= 2 && !split) return 3;
+      if (spread <= 4 && !(split && heavy)) return 2;
+      return 1;
+    });
   }
 
   async function load(place, { remember = true } = {}) {
@@ -242,14 +238,17 @@
     renderFavs();
 
     try {
-      const [data, air] = await Promise.all([
-        getJSON(forecastURL(place)),
-        getJSON(airURL(place)).catch(() => null),
+      const optional = (url) => getJSON(url).catch(() => null);
+      const [data, air, sea, models] = await Promise.all([
+        getJSON(forecastURL(place)), optional(airURL(place)), optional(seaURL(place)), optional(modelsURL(place)),
       ]);
       if (id !== state.requestId) return;
 
-      state.data = data;
+      state.data = alignToToday(data);
       state.air = air;
+      // Il servizio marino risponde con la cella di mare più vicina: la mostriamo solo se è davvero vicina.
+      state.sea = sea?.current?.wave_height != null && kmBetween(place.lat, place.lon, sea.latitude, sea.longitude) <= 40 ? sea.current : null;
+      state.trust = trustFrom(models, data.daily.time);
       state.selectedDay = 0;
       const key = data.current.time.slice(0, 13);
       state.nowIndex = Math.max(0, data.hourly.time.findIndex((t) => t.slice(0, 13) === key));
@@ -281,28 +280,61 @@
     el.hidden = false;
   }
 
+  /* ---------- Finestre temporali ---------- */
+
+  // Indici delle prossime `hours` ore a partire da adesso.
+  function ahead(hours) {
+    const h = state.data.hourly, from = state.nowIndex;
+    const idx = [];
+    for (let i = from; i < Math.min(from + hours, h.time.length); i++) idx.push(i);
+    return idx;
+  }
+
+  const isToday = (iso) => iso.slice(0, 10) === state.data.current.time.slice(0, 10);
+  const when = (iso) => {
+    const hour = Number(hourOf(iso));
+    return (isToday(iso) ? "" : "domani ") + (hour === 0 ? "verso mezzanotte" : hour === 1 ? "verso l'una" : `verso le ${hour}`);
+  };
+
+  function nextRain(hours = 24) {
+    const h = state.data.hourly;
+    return ahead(hours).find((i) => (h.precipitation_probability[i] ?? 0) >= 50);
+  }
+
   /* ---------- Render ---------- */
 
   function render() {
     const { data, place } = state;
     const c = data.current, d = data.daily;
-    const [theme, effect] = themeFor(c.weather_code, !!c.is_day);
-    document.body.dataset.theme = theme;
-    fx.set(effect);
-    document.querySelector('meta[name="theme-color"]').content = getComputedStyle(document.body).getPropertyValue("--c1").trim() || "#1e6fd9";
+    const day = !!c.is_day;
+
+    document.body.dataset.mode = day ? "day" : "night";
+    $("sky").dataset.art = artFor(c.weather_code, day);
+    document.querySelector('meta[name="theme-color"]').content = day ? "#F3EEE4" : "#101116";
 
     const sub = [place.admin, place.country].filter((x) => x && x !== place.name).join(", ");
     $("place").innerHTML = esc(place.name) + (sub ? `<small>${esc(sub)}</small>` : "");
     $("when").textContent = new Date(c.time).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" }) + " · " + hhmm(c.time);
-    $("now-temp").innerHTML = `${round(c.temperature_2m)}<sup>°</sup>`;
-    $("now-icon").innerHTML = icon(c.weather_code, !!c.is_day);
-    $("now-label").textContent = label(c.weather_code);
-    $("now-meta").textContent = `Max ${round(d.temperature_2m_max[0])}° · Min ${round(d.temperature_2m_min[0])}° · Percepita ${round(c.apparent_temperature)}°`;
+    $("now-temp").textContent = `${round(c.temperature_2m)}°`;
+    $("now-icon").innerHTML = icon(c.weather_code, day);
+    $("now-label").textContent = `${label(c.weather_code)} · percepiti ${round(c.apparent_temperature)}°`;
+
+    const meta = [`Max ${round(d.temperature_2m_max[0])}°`, `Min ${round(d.temperature_2m_min[0])}°`];
+    if (data.yesterday) {
+      const delta = round(d.temperature_2m_max[0] - data.yesterday.max);
+      meta.push(Math.abs(delta) < 2 ? "come ieri" : `${Math.abs(delta)}° più ${delta > 0 ? "caldo" : "fresco"} di ieri`);
+    }
+    $("now-meta").textContent = meta.join(" · ");
 
     $("fav-toggle").hidden = false;
+    $("share").hidden = false;
     renderFavs();
+    renderNowcast();
+    renderAlerts();
     renderHours();
     renderDays();
+    renderMoments();
+    renderHealth();
     renderTiles();
 
     const app = $("app");
@@ -312,20 +344,79 @@
     app.classList.add("ready");
   }
 
+  /* Pioggia nelle prossime due ore, a passi di 15 minuti. */
+  function minutes(m) {
+    if (m < 60) return `${m} minuti`;
+    if (m === 60) return "un'ora";
+    if (m === 90) return "un'ora e mezza";
+    return m < 90 ? "poco più di un'ora" : "quasi due ore";
+  }
+
+  function renderNowcast() {
+    const m = state.data.minutely_15, c = state.data.current;
+    const box = $("nowcast");
+    const start = m?.time?.findIndex((t) => t >= c.time) ?? -1;
+    if (start < 0) { box.hidden = true; return; }
+
+    const steps = m.precipitation.slice(start, start + 8).map((v) => v ?? 0);
+    const wet = steps.map((v) => v >= 0.1);
+    const what = isSnow(c.weather_code) || c.temperature_2m <= 0.5 ? "Neve" : "Pioggia";
+    let text;
+    if (!wet.includes(true)) {
+      text = "Asciutto per le prossime 2 ore";
+    } else if (wet[0]) {
+      const stop = wet.indexOf(false);
+      text = stop < 0 ? `${what} per almeno altre 2 ore` : `${what} in corso: pausa tra ${minutes(stop * 15)}`;
+    } else {
+      text = `${what} in arrivo tra ${minutes(wet.indexOf(true) * 15)}`;
+    }
+    $("nowcast-bars").innerHTML = steps.map((v, i) =>
+      `<i class="${wet[i] ? "wet" : ""}" style="height:${3 + Math.round(Math.min(v / 1.5, 1) * 25)}px"></i>`).join("");
+    $("nowcast-text").textContent = text;
+    box.hidden = false;
+  }
+
+  /* Segnalazioni calcolate sui dati: non sono allerte ufficiali. */
+  function renderAlerts() {
+    const { data, air } = state;
+    const c = data.current, d = data.daily, h = data.hourly;
+    const out = [];
+    const dayWord = ["oggi", "domani"];
+
+    for (const i of [0, 1]) {
+      if (d.weather_code[i] >= 95) { out.push(`Temporali ${dayWord[i]}: meglio evitare spazi aperti e alberi isolati.`); break; }
+    }
+    for (const i of [0, 1]) {
+      if ((d.wind_gusts_10m_max[i] ?? 0) >= 60) { out.push(`Raffiche di vento fino a ${round(d.wind_gusts_10m_max[i])} km/h ${dayWord[i]}.`); break; }
+    }
+    for (const i of [0, 1]) {
+      if ((d.snowfall_sum?.[i] ?? 0) >= 1) { out.push(`Neve ${dayWord[i]}: circa ${round(d.snowfall_sum[i])} cm.`); break; }
+      if ((d.precipitation_sum[i] ?? 0) >= 30) { out.push(`Pioggia abbondante ${dayWord[i]}: circa ${round(d.precipitation_sum[i])} mm.`); break; }
+    }
+    if (d.temperature_2m_max[0] >= 35) out.push(`Caldo intenso: massima di ${round(d.temperature_2m_max[0])}°. Evita le ore centrali.`);
+    const night = Math.min(...ahead(18).map((i) => h.temperature_2m[i]));
+    if (night <= 0) out.push(`Gelo nelle prossime ore: fino a ${round(night)}°. Attenzione al ghiaccio.`);
+    if ((d.uv_index_max[0] ?? 0) >= 8 && c.is_day) out.push(`UV molto alto (${round(d.uv_index_max[0])}): crema solare e ombra nelle ore centrali.`);
+    if (kind(c.weather_code) === "fog") out.push("Nebbia: visibilità ridotta, prudenza alla guida.");
+    if ((air?.current?.european_aqi ?? 0) > 80) out.push("Aria inquinata: meglio limitare gli sforzi all'aperto.");
+
+    $("alerts-list").innerHTML = out.map((t) => `<li>${esc(t)}</li>`).join("");
+    $("alerts").hidden = !out.length;
+  }
+
   function renderHours() {
     const h = state.data.hourly;
     const day = state.selectedDay;
-    let from, to;
-    if (day === 0) {
-      from = state.nowIndex; to = Math.min(from + 24, h.time.length);
-    } else {
-      const date = state.data.daily.time[day];
-      from = h.time.findIndex((t) => t.startsWith(date));
-      to = from + 24;
-    }
+    let from;
+    if (day === 0) from = state.nowIndex;
+    else from = h.time.findIndex((t) => t.startsWith(state.data.daily.time[day]));
+    const to = Math.min(from + 24, h.time.length);
+
+    const temps = h.temperature_2m.slice(from, to);
+    const lo = Math.min(...temps), span = Math.max(Math.max(...temps) - lo, 1);
 
     let html = "";
-    for (let i = from; i < to && i < h.time.length; i++) {
+    for (let i = from; i < to; i++) {
       const isNow = day === 0 && i === from;
       const prob = h.precipitation_probability[i] ?? 0;
       const midnight = hourOf(h.time[i]) === "00" && i !== from;
@@ -335,7 +426,7 @@
       html += `<li class="${isNow ? "is-now" : ""}">
         <span class="h-time">${esc(time)}</span>
         ${icon(h.weather_code[i], !!h.is_day[i])}
-        <span class="h-temp">${round(h.temperature_2m[i])}°</span>
+        <span class="h-track"><span class="h-temp" style="--t:${((h.temperature_2m[i] - lo) / span).toFixed(2)}">${round(h.temperature_2m[i])}°</span></span>
         <span class="h-rain">${prob >= 20 ? prob + "%" : ""}</span>
       </li>`;
     }
@@ -343,8 +434,7 @@
     list.innerHTML = html;
     list.scrollLeft = 0;
 
-    const title = day === 0 ? "Ora per ora" : "Ora per ora · " + dayName(day, "long");
-    $("hourly-title").textContent = title;
+    $("hourly-title").textContent = day === 0 ? "Ora per ora" : "Ora per ora · " + dayName(day, "long");
     $("back-today").hidden = day === 0;
   }
 
@@ -354,66 +444,176 @@
     return new Date(state.data.daily.time[i] + "T12:00").toLocaleDateString("it-IT", { weekday });
   }
 
+  const TRUST = ["", "bassa", "media", "alta"];
+
   function renderDays() {
-    const d = state.data.daily;
+    const d = state.data.daily, trust = state.trust;
     const lo = Math.min(...d.temperature_2m_min), hi = Math.max(...d.temperature_2m_max);
     const span = Math.max(hi - lo, 1);
     $("days").innerHTML = d.time.map((_, i) => {
       const min = d.temperature_2m_min[i], max = d.temperature_2m_max[i];
       const left = ((min - lo) / span) * 100, right = ((hi - max) / span) * 100;
       const prob = d.precipitation_probability_max[i] ?? 0;
+      const t = trust?.[i];
+      const meter = t ? `<span class="trust t${t}" title="Affidabilità ${TRUST[t]}"><i></i><i></i><i></i></span>` : "<span></span>";
       return `<li><button type="button" data-day="${i}" aria-pressed="${i === state.selectedDay}"
-          aria-label="${esc(dayName(i, "long"))}: ${esc(label(d.weather_code[i]))}, minima ${round(min)}°, massima ${round(max)}°">
+          aria-label="${esc(dayName(i, "long"))}: ${esc(label(d.weather_code[i]))}, minima ${round(min)}°, massima ${round(max)}°${t ? `, affidabilità ${TRUST[t]}` : ""}">
         <span class="d-name">${esc(dayName(i))}</span>
         ${icon(d.weather_code[i], true)}
         <span class="d-rain">${prob >= 20 ? prob + "%" : ""}</span>
         <span class="d-min">${round(min)}°</span>
         <span class="d-bar"><i style="left:${left.toFixed(1)}%;right:${right.toFixed(1)}%"></i></span>
         <span class="d-max">${round(max)}°</span>
+        ${meter}
       </button></li>`;
     }).join("");
+    $("trust-note").hidden = !trust;
   }
 
-  const COMPASS = ["N", "NE", "E", "SE", "S", "SO", "O", "NO"];
+  /* ---------- Il momento giusto ---------- */
+
+  const up = (x, a, b) => clamp01((x - a) / (b - a));      // 0 sotto a, 1 sopra b
+  const down = (x, a, b) => 1 - up(x, a, b);               // 1 sotto a, 0 sopra b
+  const band = (x, a, b, c, d) => Math.min(up(x, a, b), down(x, c, d));
+
+  function moonIllumination(date = new Date()) {
+    const phase = (((date.getTime() / 86400000 + 2440587.5 - 2451550.1) / 29.530588853) % 1 + 1) % 1;
+    return { phase, lit: (1 - Math.cos(2 * Math.PI * phase)) / 2 };
+  }
+
+  function hourFacts(i) {
+    const h = state.data.hourly;
+    const prob = h.precipitation_probability[i] ?? 0;
+    const falling = isWet(h.weather_code[i]) || isSnow(h.weather_code[i]);
+    return {
+      t: h.apparent_temperature[i], wind: h.wind_speed_10m[i], gusts: h.wind_gusts_10m[i] ?? h.wind_speed_10m[i],
+      hum: h.relative_humidity_2m[i], clouds: h.cloud_cover[i] ?? 50, day: !!h.is_day[i],
+      dry: down(prob, 20, 60) * (falling ? 0.2 : 1),
+    };
+  }
+
+  const ACTIVITIES = [
+    { name: "Corsa", score: (f) => band(f.t, -2, 6, 20, 28) * f.dry * down(f.wind, 25, 45) },
+    { name: "Bici", score: (f) => band(f.t, 3, 10, 26, 33) * f.dry * down(f.gusts, 30, 55) * (f.day ? 1 : 0.4) },
+    { name: "Tavolino all'aperto", score: (f) => band(f.t, 10, 17, 28, 34) * f.dry * down(f.wind, 18, 35) },
+    { name: "Bucato steso", score: (f) => (f.day ? f.dry * down(f.hum, 60, 90) * up(f.t, 2, 12) * (0.7 + 0.3 * up(f.wind, 3, 15)) : 0) },
+    { name: "Guardare le stelle", score: (f, x) => (f.day ? 0 : down(f.clouds, 15, 70) * f.dry * (1 - 0.4 * x.moon)) },
+    { name: "Spiaggia", needsSea: true, score: (f, x) => (f.day ? up(f.t, 21, 27) * f.dry * down(f.wind, 20, 40) * down(x.wave, 0.8, 1.8) : 0) },
+  ];
+
+  function renderMoments() {
+    const h = state.data.hourly;
+    const idx = ahead(24);
+    const extra = { moon: moonIllumination().lit, wave: state.sea?.wave_height ?? 0 };
+    const facts = idx.map(hourFacts);
+
+    $("moments").innerHTML = ACTIVITIES.filter((a) => !a.needsSea || state.sea).map((a) => {
+      const scores = facts.map((f) => a.score(f, extra));
+      const best = scores.indexOf(Math.max(...scores));
+      let verdict;
+      if (scores[best] < 0.4) {
+        verdict = "Meglio di no";
+      } else {
+        const floor = Math.max(0.4, scores[best] - 0.2);
+        let l = best, r = best;
+        while (l > 0 && scores[l - 1] >= floor) l--;
+        while (r < scores.length - 1 && scores[r + 1] >= floor) r++;
+        const word = scores[best] >= 0.8 ? "Ottimo" : scores[best] >= 0.6 ? "Buono" : "Discreto";
+        const startIso = h.time[idx[l]];
+        const endHour = (Number(hourOf(h.time[idx[r]])) + 1) % 24;
+        const range = l === 0 ? `da adesso alle ${endHour}` : `${isToday(startIso) ? "oggi" : "domani"} ${Number(hourOf(startIso))}–${endHour}`;
+        verdict = `<b>${word}</b> · ${range}`;
+      }
+      const strip = scores.map((s) => `<i class="${s < 0.15 ? "off" : ""}" style="--s:${s.toFixed(2)}"></i>`).join("");
+      return `<li><span class="m-name">${a.name}</span><span class="m-when">${verdict}</span><span class="m-strip">${strip}</span></li>`;
+    }).join("");
+
+    const tick = (k) => (idx[k] != null ? hourOf(h.time[idx[k]]) : "");
+    $("moments-axis").innerHTML = ["Ora", tick(6), tick(12), tick(18), tick(23)].map((t) => `<span>${t}</span>`).join("");
+  }
+
+  /* ---------- Aria e salute ---------- */
+
   const uvLabel = (v) => (v < 3 ? "Basso" : v < 6 ? "Moderato" : v < 8 ? "Alto" : v < 11 ? "Molto alto" : "Estremo");
-  const aqiLabel = (v) => (v <= 20 ? "Ottima" : v <= 40 ? "Buona" : v <= 60 ? "Discreta" : v <= 80 ? "Scarsa" : "Pessima");
+  const aqiLabel = (v) => (v <= 20 ? "Ottima" : v <= 40 ? "Buona" : v <= 60 ? "Discreta" : v <= 80 ? "Scarsa" : v <= 100 ? "Molto scarsa" : "Pessima");
+  const POLLEN = { grass_pollen: "Graminacee", olive_pollen: "Olivo", birch_pollen: "Betulla", alder_pollen: "Ontano", mugwort_pollen: "Artemisia", ragweed_pollen: "Ambrosia" };
+  const POLLEN_LEVEL = ["", "basso", "medio", "alto"];
+
+  function renderHealth() {
+    const { data, air } = state;
+    const h = data.hourly, d = data.daily;
+    const rows = [];
+
+    const a = air?.current;
+    if (a?.european_aqi != null) {
+      const parts = [["PM2.5", a.pm2_5], ["PM10", a.pm10], ["NO₂", a.nitrogen_dioxide], ["O₃", a.ozone]]
+        .filter(([, v]) => v != null).map(([k, v]) => `${k} ${round(v)}`).join(" · ");
+      rows.push(`<div><span class="hl-name">Qualità dell'aria</span><span class="hl-val">${aqiLabel(a.european_aqi)}</span>
+        <span class="scale"><i style="left:${(clamp01(a.european_aqi / 120) * 100).toFixed(0)}%"></i></span>
+        <span class="hl-sub">Indice europeo ${round(a.european_aqi)} · ${parts} µg/m³</span></div>`);
+    }
+
+    const uvMax = d.uv_index_max[0] ?? 0;
+    const sunny = h.time.map((t, i) => i).filter((i) => isToday(h.time[i]) && (h.uv_index[i] ?? 0) >= 3);
+    const uvSub = sunny.length
+      ? `Protezione solare consigliata dalle ${Number(hourOf(h.time[sunny[0]]))} alle ${Number(hourOf(h.time[sunny.at(-1)])) + 1}.`
+      : "Oggi non serve protezione solare.";
+    rows.push(`<div><span class="hl-name">Raggi UV</span><span class="hl-val">${uvLabel(uvMax)} · ${round(uvMax)}</span><span class="hl-sub">${uvSub}</span></div>`);
+
+    const pollen = Object.entries(POLLEN).map(([key, name]) => {
+      const values = (air?.hourly?.[key] ?? []).filter((v) => v != null);
+      if (!values.length) return null;
+      const peak = Math.max(...values);
+      return { name, level: peak < 1 ? 0 : peak < 10 ? 1 : peak < 50 ? 2 : 3 };
+    }).filter(Boolean);
+    if (pollen.length) {
+      const active = pollen.filter((p) => p.level > 0).sort((x, y) => y.level - x.level);
+      const top = active[0]?.level ?? 0;
+      rows.push(`<div><span class="hl-name">Pollini</span><span class="hl-val">${top ? POLLEN_LEVEL[top][0].toUpperCase() + POLLEN_LEVEL[top].slice(1) : "Assenti"}</span>
+        <span class="hl-sub">${active.length ? active.map((p) => `${p.name} ${POLLEN_LEVEL[p.level]}`).join(" · ") : "Nessun polline rilevante oggi."}</span></div>`);
+    }
+
+    $("health").innerHTML = rows.join("");
+  }
+
+  /* ---------- Dettagli ---------- */
+
+  const COMPASS = ["N", "NE", "E", "SE", "S", "SO", "O", "NO"];
+  const MOON = ["Luna nuova", "Falce crescente", "Primo quarto", "Gibbosa crescente", "Luna piena", "Gibbosa calante", "Ultimo quarto", "Falce calante"];
+  const seaState = (m) => (m < 0.1 ? "calmo" : m < 0.5 ? "quasi calmo" : m < 1.25 ? "poco mosso" : m < 2.5 ? "mosso" : m < 4 ? "molto mosso" : "agitato");
 
   function renderTiles() {
-    const { data, air, nowIndex: i } = state;
+    const { data, sea, nowIndex: i } = state;
     const c = data.current, h = data.hourly, d = data.daily;
-    const uv = h.uv_index[i] ?? 0;
     const vis = h.visibility[i];
     const dir = c.wind_direction_10m;
     const arrow = `<svg class="arrow" viewBox="0 0 24 24" style="transform:rotate(${(dir + 180) % 360}deg)" aria-hidden="true"><path d="M12 3l6 16-6-4-6 4z" fill="currentColor"/></svg>`;
     const rainToday = d.precipitation_sum[0] ?? 0;
-    const aqi = air?.current?.european_aqi;
+    const light = (new Date(d.sunset[0]) - new Date(d.sunrise[0])) / 60000;
+    const moon = moonIllumination();
 
     const tiles = [
-      ["Vento", `${round(c.wind_speed_10m)}<small>km/h</small>`, `${arrow}${COMPASS[Math.round(dir / 45) % 8]} · raffiche ${round(c.wind_gusts_10m)}`],
+      ["Vento", `${round(c.wind_speed_10m)}<small>km/h</small>`, `${arrow}da ${COMPASS[Math.round(dir / 45) % 8]} · raffiche ${round(c.wind_gusts_10m)}`],
+      ["Pioggia oggi", `${rainToday < 10 ? comma(rainToday) : round(rainToday)}<small>mm</small>`, `Probabilità ${d.precipitation_probability_max[0] ?? 0}%`],
       ["Umidità", `${round(c.relative_humidity_2m)}<small>%</small>`, c.relative_humidity_2m >= 75 ? "Aria umida" : c.relative_humidity_2m <= 35 ? "Aria secca" : "Confortevole"],
-      ["Indice UV", `${round(uv)}`, uvLabel(uv)],
-      ["Pioggia oggi", `${rainToday < 10 ? rainToday.toFixed(1).replace(".", ",") : round(rainToday)}<small>mm</small>`, `Probabilità ${d.precipitation_probability_max[0] ?? 0}%`],
       ["Pressione", `${round(c.pressure_msl)}<small>hPa</small>`, c.pressure_msl >= 1020 ? "Alta pressione" : c.pressure_msl <= 1005 ? "Bassa pressione" : "Nella norma"],
-      ["Visibilità", vis == null ? "—" : vis >= 10000 ? `${round(vis / 1000)}<small>km</small>` : `${(vis / 1000).toFixed(1).replace(".", ",")}<small>km</small>`, vis == null ? "" : vis >= 10000 ? "Ottima" : vis >= 4000 ? "Buona" : "Ridotta"],
-      ["Qualità dell'aria", aqi == null ? "—" : `${round(aqi)}`, aqi == null ? "Dato non disponibile" : `${aqiLabel(aqi)} · PM2.5 ${round(air.current.pm2_5)}`],
-      ["Alba", hhmm(d.sunrise[0]), ""],
-      ["Tramonto", hhmm(d.sunset[0]), daylight(d.sunrise[0], d.sunset[0])],
+      ["Visibilità", vis == null ? "—" : `${vis >= 10000 ? round(vis / 1000) : comma(vis / 1000)}<small>km</small>`, vis == null ? "" : vis >= 10000 ? "Ottima" : vis >= 4000 ? "Buona" : "Ridotta"],
+      ["Ore di luce", `${Math.floor(light / 60)}<small>h</small> ${String(Math.round(light % 60)).padStart(2, "0")}<small>min</small>`, `Alba ${hhmm(d.sunrise[0])} · tramonto ${hhmm(d.sunset[0])}`],
+      ["Luna", `${round(moon.lit * 100)}<small>%</small>`, MOON[Math.round(moon.phase * 8) % 8]],
     ];
-    $("tiles").innerHTML = tiles.map(([title, value, sub]) =>
-      `<div class="tile"><h3>${title}</h3><div class="t-val">${value}</div><div class="t-sub">${sub}</div></div>`).join("");
+    if (sea) {
+      tiles.push(["Mare", sea.sea_surface_temperature == null ? "—" : `${round(sea.sea_surface_temperature)}°<small>acqua</small>`,
+        `Onde ${comma(sea.wave_height)} m · ${seaState(sea.wave_height)}`]);
+    }
+    $("tiles").innerHTML = tiles.map(([title, value, sub], n) =>
+      `<div class="tile${tiles.length % 2 && n === tiles.length - 1 ? " odd" : ""}"><h3>${title}</h3><div class="t-val">${value}</div><div class="t-sub">${sub}</div></div>`).join("");
   }
 
-  function daylight(rise, set) {
-    const mins = (new Date(set) - new Date(rise)) / 60000;
-    return `${Math.floor(mins / 60)} h ${String(Math.round(mins % 60)).padStart(2, "0")} di luce`;
-  }
-
-  /* ---------- Preferiti ---------- */
+  /* ---------- Preferiti e condivisione ---------- */
 
   function renderFavs() {
     const favs = store.get("cielo:favs", []);
-    const nav = $("favs");
-    nav.replaceChildren(...favs.map((f) => {
+    $("favs").replaceChildren(...favs.map((f) => {
       const b = document.createElement("button");
       b.type = "button";
       b.textContent = f.name;
@@ -436,13 +636,21 @@
     renderFavs();
   });
 
+  $("share").addEventListener("click", async () => {
+    const text = `${state.place.name}: ${state.headline || label(state.data.current.weather_code)} (${round(state.data.current.temperature_2m)}°)`;
+    try {
+      if (navigator.share) await navigator.share({ title: "Cielo", text, url: location.href });
+      else { await navigator.clipboard.writeText(`${text} ${location.href}`); toast("Link copiato"); }
+    } catch { /* condivisione annullata */ }
+  });
+
   /* ---------- Selezione giorno ---------- */
 
   $("days").addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-day]");
     if (!btn) return;
     selectDay(Number(btn.dataset.day));
-    if (innerWidth < 860) document.querySelector(".hourly").scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
+    if (innerWidth < 880) document.querySelector(".hourly").scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
   });
   $("back-today").addEventListener("click", () => selectDay(0));
 
@@ -546,68 +754,71 @@
     }, { timeout: 10000, maximumAge: 600000 });
   });
 
-  /* ---------- Sintesi e risposte ---------- */
+  /* ---------- Il titolo e il testo (versione senza AI) ---------- */
 
-  function when(iso) {
-    const today = state.data.current.time.slice(0, 10);
-    const h = Number(hourOf(iso));
-    return (iso.slice(0, 10) === today ? "" : "domani ") + `verso le ${h}`;
+  function localHeadline() {
+    const { data } = state;
+    const c = data.current, h = data.hourly;
+    const k = kind(c.weather_code), t = round(c.temperature_2m);
+
+    if (k === "storm") return "Temporale in corso.";
+    if (isWet(c.weather_code)) {
+      const stop = ahead(18).find((i) => (h.precipitation_probability[i] ?? 0) < 30 && !isWet(h.weather_code[i]));
+      return stop != null && isToday(h.time[stop]) ? `Piove fino alle ${Number(hourOf(h.time[stop]))}.` : "Pioggia per tutto il giorno.";
+    }
+    if (k === "snow") return "Nevica: occhio alle strade.";
+    const rainAt = nextRain(14);
+    if (rainAt != null) {
+      const what = isSnow(h.weather_code[rainAt]) ? "Neve" : "Ombrello";
+      return isToday(h.time[rainAt]) ? `${what} dalle ${Number(hourOf(h.time[rainAt]))}.` : (what === "Neve" ? "Neve in arrivo domani." : "Domani serve l'ombrello.");
+    }
+    if (k === "fog") return "Nebbia, si vede poco.";
+    if (c.wind_gusts_10m >= 50) return `Vento forte: raffiche a ${round(c.wind_gusts_10m)}.`;
+    if (c.apparent_temperature <= 3) return `Freddo vero: ${gradi(t)}.`;
+    if (c.apparent_temperature >= 32) return `Caldo pesante: ${gradi(t)}.`;
+    if (k === "clear") return c.is_day ? `Sole pieno, ${gradi(t)}.` : `Notte limpida, ${gradi(t)}.`;
+    if (k === "partly") return c.is_day ? "Qualche nuvola, niente pioggia." : "Qualche nube, serata asciutta.";
+    return "Cielo grigio, ma asciutto.";
   }
-
-  // Finestra delle prossime `hours` ore a partire da adesso.
-  function ahead(hours) {
-    const h = state.data.hourly, from = state.nowIndex;
-    const idx = [];
-    for (let i = from; i < Math.min(from + hours, h.time.length); i++) idx.push(i);
-    return idx;
-  }
-
-  function nextRain(hours = 24) {
-    const h = state.data.hourly;
-    return ahead(hours).find((i) => (h.precipitation_probability[i] ?? 0) >= 50);
-  }
-
-  const wetWord = (i) => (kind(state.data.hourly.weather_code[i]) === "snow" ? "Neve" : "Pioggia");
 
   function localSummary() {
-    const { data, place, nowIndex } = state;
+    const { data } = state;
     const c = data.current, d = data.daily, h = data.hourly;
-    const out = [`${label(c.weather_code)} a ${place.name}, ${round(c.temperature_2m)}° (percepiti ${round(c.apparent_temperature)}°).`];
+    const out = [];
 
     const rainAt = nextRain();
     if (isWet(c.weather_code)) {
       const stop = ahead(24).find((i) => (h.precipitation_probability[i] ?? 0) < 30 && !isWet(h.weather_code[i]));
-      out.push(stop != null ? `Dovrebbe smettere ${when(h.time[stop])}.` : "Tempo instabile per tutta la giornata.");
-    } else if (kind(c.weather_code) === "snow") {
-      out.push("Attenzione a strade e marciapiedi scivolosi.");
+      out.push(stop != null ? `La pioggia dovrebbe smettere ${when(h.time[stop])}.` : "Tempo instabile ancora per molte ore.");
+    } else if (isSnow(c.weather_code)) {
+      out.push("La neve continua nelle prossime ore.");
     } else if (rainAt != null) {
-      out.push(rainAt === nowIndex ? "Precipitazioni molto probabili a breve." : `${wetWord(rainAt)} probabile ${when(h.time[rainAt])}.`);
+      out.push(`${isSnow(h.weather_code[rainAt]) ? "Neve" : "Pioggia"} probabile ${when(h.time[rainAt])}.`);
     } else {
       out.push("Niente pioggia in vista nelle prossime 24 ore.");
     }
-
     out.push(`Oggi si va da ${round(d.temperature_2m_min[0])}° a ${round(d.temperature_2m_max[0])}°.`);
 
     const uv = d.uv_index_max[0] ?? 0;
-    const snowy = kind(c.weather_code) === "snow";
-    if (!snowy && (rainAt != null || isWet(c.weather_code))) out.push("Meglio avere un ombrello con sé.");
-    else if (c.wind_gusts_10m >= 50) out.push("Occhio alle raffiche di vento.");
-    else if (c.apparent_temperature <= 5) out.push("Copriti bene, fa freddo.");
+    if (isSnow(c.weather_code)) out.push("Scarpe con una buona suola e passo corto.");
+    else if (rainAt != null || isWet(c.weather_code)) out.push("Meglio avere un ombrello con sé.");
+    else if (c.wind_gusts_10m >= 50) out.push("Occhio alle raffiche.");
+    else if (c.apparent_temperature <= 5) out.push("Copriti bene.");
     else if (uv >= 6 && c.is_day) out.push("UV alto: non dimenticare la crema solare.");
-    else if (c.apparent_temperature >= 32) out.push("Fa molto caldo: bevi spesso e cerca l'ombra.");
-    else out.push(c.is_day ? "Una buona giornata per stare all'aperto." : "Una serata tranquilla per uscire.");
+    else if (c.apparent_temperature >= 32) out.push("Bevi spesso e cerca l'ombra.");
+    else out.push(c.is_day ? "Una buona giornata per stare fuori." : "Una serata tranquilla per uscire.");
     return out.join(" ");
   }
 
   const LOCAL_ANSWERS = {
     umbrella() {
-      const h = state.data.hourly;
+      const h = state.data.hourly, code = state.data.current.weather_code;
       const idx = ahead(12);
       const max = Math.max(...idx.map((i) => h.precipitation_probability[i] ?? 0));
       const at = idx.find((i) => (h.precipitation_probability[i] ?? 0) >= 50);
-      if (isWet(state.data.current.weather_code)) return "Sì, sta già piovendo: prendilo.";
-      if (kind(state.data.current.weather_code) === "snow") return "Sta nevicando: più dell'ombrello servono un cappuccio e scarpe con una buona suola.";
-      if (at != null) return `Sì, portalo: ${wetWord(at).toLowerCase()} probabile ${when(h.time[at])} (fino al ${max}%).`;
+      if (isWet(code)) return "Sì, sta già piovendo: prendilo.";
+      if (isSnow(code)) return "Sta nevicando: più dell'ombrello servono un cappuccio e scarpe con una buona suola.";
+      if (at != null) return `Sì, portalo: ${isSnow(h.weather_code[at]) ? "neve" : "pioggia"} probabile ${when(h.time[at])} (fino al ${max}%).`;
       if (max >= 30) return `Forse: c'è un ${max}% di probabilità di pioggia nelle prossime 12 ore. Uno piccolo in borsa non guasta.`;
       return `No, puoi lasciarlo a casa: nelle prossime 12 ore la probabilità di pioggia non supera il ${max}%.`;
     },
@@ -619,7 +830,7 @@
         : t <= 21 ? "Una felpa o una giacca leggera bastano."
         : t <= 27 ? "Maniche corte, si sta bene."
         : "Vestiti leggeri e traspiranti: fa caldo.";
-      if (kind(c.weather_code) === "snow") s += " Scarpe impermeabili, nevica.";
+      if (isSnow(c.weather_code)) s += " Scarpe impermeabili, nevica.";
       else if (nextRain(12) != null || isWet(c.weather_code)) s += " Aggiungi qualcosa di impermeabile.";
       else if (c.wind_speed_10m >= 30) s += " Con questo vento, meglio un antivento.";
       return `${s} Ora si percepiscono ${round(t)}°.`;
@@ -644,6 +855,8 @@
     },
   };
 
+  /* ---------- AI ---------- */
+
   let typing = 0;
   function typeInto(el, text) {
     clearInterval(typing);
@@ -657,18 +870,14 @@
     }, 28);
   }
 
-  function aiURL(extra = {}) {
-    const p = new URLSearchParams({ lat: state.place.lat, lon: state.place.lon, name: state.place.name, ...extra });
-    return `api/ai?${p}`;
-  }
-
-  async function askAI(extra) {
+  async function askAI(extra = {}) {
     if (state.aiAvailable === false) return null;
     try {
-      const json = await getJSON(aiURL(extra), { timeout: 25000 });
+      const p = new URLSearchParams({ lat: state.place.lat, lon: state.place.lon, name: state.place.name, ...extra });
+      const json = await getJSON(`api/ai?${p}`, { timeout: 25000 });
       if (typeof json.text !== "string" || !json.text.trim()) throw new Error("risposta vuota");
       state.aiAvailable = true;
-      return json.text.trim();
+      return json;
     } catch (err) {
       // 404/405 = sito pubblicato senza backend; 503 = chiave non configurata.
       if ([404, 405, 501, 503].includes(err.status) || state.aiAvailable === null) state.aiAvailable = false;
@@ -677,19 +886,24 @@
   }
 
   async function loadSummary(id) {
-    const text = $("ai-text");
-    text.innerHTML = '<span class="sk sk-line"></span><span class="sk sk-line"></span><span class="sk sk-line short"></span>';
+    const headline = $("headline"), text = $("ai-text");
+    headline.innerHTML = '<span class="sk" style="width:90%;height:.9em"></span><span class="sk" style="width:60%;height:.9em"></span>';
+    text.innerHTML = '<span class="sk sk-line"></span><span class="sk sk-line short"></span>';
     $("ai-answer").hidden = true;
     $("ai-chips").hidden = true;
+    $("ai-badge").hidden = true;
 
     const ai = await askAI();
     if (id !== state.requestId) return;
 
-    typeInto(text, ai ?? localSummary());
+    state.headline = (ai?.title || localHeadline()).trim();
+    headline.textContent = state.headline;
+    typeInto(text, ai?.text.trim() ?? localSummary());
     $("ai-badge").hidden = !ai;
     $("ai-chips").hidden = false;
     $("ask").hidden = !state.aiAvailable;
-    $("ai-note").textContent = state.aiAvailable ? "Sintesi e risposte generate dall'AI: possono contenere imprecisioni." : "";
+    document.querySelectorAll("[data-ai-only]").forEach((el) => { el.hidden = !state.aiAvailable; });
+    $("ai-note").textContent = state.aiAvailable ? "Titolo e risposte sono scritti da un'AI: possono contenere imprecisioni." : "";
   }
 
   async function answer(question, localKey) {
@@ -700,12 +914,11 @@
     const id = state.requestId;
     const ai = await askAI({ q: question });
     if (id !== state.requestId) return;
-    const text = ai ?? (localKey ? LOCAL_ANSWERS[localKey]() : "Non riesco a rispondere in questo momento. Riprova tra poco.");
-    typeInto(a, text);
+    typeInto(a, ai?.text.trim() ?? (localKey ? LOCAL_ANSWERS[localKey]() : "Non riesco a rispondere in questo momento. Riprova tra poco."));
   }
 
   $("ai-chips").addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-q]");
+    const b = e.target.closest("button");
     if (b && state.data) answer(b.textContent, b.dataset.q);
   });
 

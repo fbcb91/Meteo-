@@ -1,19 +1,25 @@
 # Cielo
 
-Un sito meteo moderno e semplice: una sola pagina, previsioni chiare e un assistente AI che ti dice in due righe cosa aspettarti.
+Il meteo che ti risponde: prima una frase chiara su cosa aspettarti, poi i numeri.
 
-- Meteo attuale, ora per ora e a 7 giorni, con sfondo che cambia in base al tempo (sole, notte, pioggia, neve…)
-- Ricerca città con suggerimenti, posizione attuale, città preferite, link condivisibile
-- Dettagli: vento, umidità, UV, pioggia, pressione, visibilità, qualità dell'aria, alba e tramonto
-- **Il punto**: sintesi del meteo e risposte a domande libere ("Posso fare una grigliata sabato?") generate da Claude
+- **Il titolo**: la cosa che conta, in poche parole ("Ombrello dalle 17."), scritta da Claude o, senza AI, calcolata nel browser
+- **Pioggia nelle prossime 2 ore**, a passi di 15 minuti
+- **Il momento giusto**: le ore migliori per corsa, bici, bucato, tavolino all'aperto, stelle e spiaggia
+- **Affidabilità** di ogni giorno, dal confronto tra i modelli ECMWF, ICON e GFS
+- **Da tenere d'occhio**: vento forte, piogge abbondanti, gelo, caldo, UV (segnalazioni calcolate, non allerte ufficiali)
+- **Aria e salute**: qualità dell'aria, UV con orari di protezione, pollini
+- Ora per ora, 7 giorni, confronto con ieri, mare (vicino alla costa), luna, ore di luce
+- Ricerca città, posizione, preferiti, condivisione, installabile come app
+- **Chiedi a Cielo**: domande libere ("Posso grigliare sabato sera?")
 
-I dati arrivano da [Open-Meteo](https://open-meteo.com/) (gratuito, senza chiave API).
+Niente pubblicità né tracciamento. I dati arrivano da [Open-Meteo](https://open-meteo.com/) (gratuito per uso non commerciale, senza chiave API).
 
 ## Struttura
 
 | File | Cosa fa |
 | --- | --- |
 | `index.html`, `styles.css`, `app.js` | Il sito. HTML/CSS/JS puri, nessuna build |
+| `fonts/`, `icons/`, `icon.svg`, `manifest.webmanifest` | Carattere Bricolage Grotesque (licenza OFL) e icone dell'app |
 | `api/ai.js` | Funzione serverless che chiama Claude per sintesi e risposte |
 
 ## Provarlo in locale
