@@ -1,0 +1,17 @@
+{
+  "name": "cielo-meteo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Cielo — un sito meteo moderno con sintesi AI",
+  "scripts": {
+    "dev": "vercel dev",
+    "start": "npx serve ."
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
