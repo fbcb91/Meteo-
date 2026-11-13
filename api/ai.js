@@ -69,6 +69,10 @@ function describe(name, w) {
     lines.push([h.time[i].replace("T", " "), label(h.weather_code[i]), h.temperature_2m[i], h.apparent_temperature[i],
       h.precipitation_probability[i] ?? 0, h.relative_humidity_2m[i], h.wind_speed_10m[i], h.uv_index[i] ?? 0].join(" | "));
   }
+  lines.push("", "Giorni successivi, ogni 3 ore (ora | cielo | °C | prob. pioggia % | vento km/h):");
+  for (let i = start + 24; i < h.time.length; i += 3) {
+    lines.push([h.time[i].replace("T", " "), label(h.weather_code[i]), h.temperature_2m[i], h.precipitation_probability[i] ?? 0, h.wind_speed_10m[i]].join(" | "));
+  }
   lines.push("", "Prossimi giorni (data | cielo | min °C | max °C | prob. pioggia % | pioggia mm | vento max km/h | UV max | alba | tramonto):");
   d.time.forEach((day, i) => {
     lines.push([day, label(d.weather_code[i]), d.temperature_2m_min[i], d.temperature_2m_max[i],

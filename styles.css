@@ -373,6 +373,89 @@ body[data-mode="night"] .alerts { background: #3a1d12; color: #ffd9c7; border-co
   background: linear-gradient(90deg, #35b56a, #b5cf3f 25%, #f2c230 45%, #f08a00 65%, #d9402b 85%, #8e2aa8); }
 .scale i { position: absolute; top: -4px; width: 6px; height: 16px; margin-left: -3px; border-radius: 3px; background: var(--ink); border: 1.5px solid var(--surface); }
 
+/* ---------- Pulsanti e scelte comuni ---------- */
+
+.primary { padding: 12px 20px; border: 0; border-radius: 14px; background: var(--ink); color: var(--bg); font-weight: 700; font-size: 16px; }
+.primary:active { scale: .97; }
+.seg { display: inline-flex; padding: 3px; border-radius: 12px; background: var(--soft); }
+.seg button { padding: 6px 12px; border: 0; border-radius: 9px; background: none; font-size: 14px; font-weight: 700; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1.5px var(--line); }
+.chips button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+/* ---------- Il mio meteo ---------- */
+
+.mine { border-color: var(--ink); box-shadow: 5px 5px 0 var(--ink); }
+.mine-empty { display: grid; gap: 16px; justify-items: start; }
+.mine-empty p { max-width: 44em; font-size: 17px; font-weight: 500; line-height: 1.45; }
+.mine-list { display: grid; gap: 4px 28px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr)); }
+.mine-list li { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 12px; padding: 10px 0; font-size: 16.5px; line-height: 1.4; border-top: 1.5px solid var(--soft); }
+.mine-list i { width: 12px; height: 12px; margin-top: .32em; border-radius: 50%; background: var(--good); }
+.mine-list .warn i { background: var(--warm); }
+.mine-list .bad i { background: #d9402b; border-radius: 3px; }
+.mine-list b { font-weight: 800; margin-right: 4px; }
+
+/* ---------- Quando conviene? ---------- */
+
+.plan .chips { flex-wrap: wrap; margin: 0; padding: 0; }
+.plan-list { margin-top: 16px; display: grid; gap: 8px; }
+.plan-list button {
+  width: 100%; display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 2px 14px; align-items: center;
+  padding: 14px 16px; border: 1.5px solid var(--line); border-radius: 18px; background: none; text-align: left;
+  transition: border-color .2s, background-color .2s;
+}
+.plan-list button:hover { border-color: var(--ink); background: var(--soft); }
+.plan-list li:first-child button { border-color: var(--ink); }
+.p-rank { grid-row: span 2; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--soft); font-size: 20px; font-weight: 800; }
+.plan-list li:first-child .p-rank { background: var(--good); color: #fff; }
+.p-main { font-size: 18px; font-weight: 500; }
+.p-main b { font-weight: 800; text-transform: capitalize; }
+.p-word { font-weight: 800; white-space: nowrap; }
+.p-why { grid-column: 2 / -1; font-size: 14px; color: var(--muted); line-height: 1.4; }
+.p-none { padding: 16px; border-radius: 18px; background: var(--soft); font-weight: 500; }
+.plan-ask { margin-top: 14px; box-shadow: none; }
+.plan-answer { margin-top: 12px; padding: 16px 18px; border-radius: 18px; background: var(--ink); color: var(--bg); font-size: 17px; font-weight: 500; line-height: 1.45; }
+
+/* ---------- Mare e vento ---------- */
+
+.sea-now { display: grid; gap: 18px 28px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); }
+.sea-stat h3 { margin: 0 0 4px; font-size: 14px; font-weight: 700; color: var(--muted); }
+.sea-stat .t-val { font-size: 44px; font-weight: 800; letter-spacing: -.05em; line-height: 1; font-variant-numeric: tabular-nums; }
+.sea-stat .t-val small { font-size: 16px; font-weight: 600; color: var(--muted); letter-spacing: 0; margin-left: 4px; }
+.sea-stat p { margin-top: 8px; font-size: 14px; font-weight: 500; color: var(--muted); line-height: 1.4; }
+.w-arrow { width: 16px; height: 16px; display: inline-block; vertical-align: -3px; }
+.sea-stat .w-arrow { margin-right: 4px; color: var(--ink); }
+.sea-day { margin: 22px 0 10px; font-size: 14px; color: var(--muted); }
+.sea-day b { color: var(--ink); font-weight: 800; text-transform: capitalize; }
+.sea-wrap { overflow-x: auto; margin: 0 -10px -6px; padding: 0 10px 6px; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.sea-hours { display: flex; gap: 2px; width: max-content; }
+.sea-hours li { width: 46px; display: flex; flex-direction: column; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.s-time { font-size: 13px; font-weight: 600; color: var(--muted); }
+.s-wind { width: 38px; padding: 6px 0; border-radius: 10px; text-align: center; font-size: 16px; font-weight: 800; }
+.s-gust { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.s-wave { height: 40px; width: 22px; display: flex; align-items: flex-end; }
+.s-wave i { width: 100%; border-radius: 6px 6px 2px 2px; background: var(--blue); }
+.s-m { font-size: 12.5px; font-weight: 700; }
+
+/* ---------- Finestra "Il mio meteo" ---------- */
+
+.sheet { width: min(640px, calc(100vw - 24px)); max-height: min(86dvh, 820px); padding: 0; border: 1.5px solid var(--ink); border-radius: 26px; background: var(--surface); color: var(--ink); box-shadow: 8px 8px 0 var(--ink); }
+.sheet::backdrop { background: rgba(10, 10, 14, .55); }
+.sheet form { padding: 26px; display: grid; gap: 20px; }
+.sheet h2 { font-size: 30px; font-weight: 800; letter-spacing: -.035em; line-height: 1; }
+.sheet-intro { margin-top: -10px; color: var(--muted); font-size: 15px; line-height: 1.45; }
+.sheet fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.sheet legend { padding: 0; margin-bottom: 10px; font-weight: 800; font-size: 17px; }
+.picks { display: flex; flex-wrap: wrap; gap: 8px; }
+.pick { position: relative; cursor: pointer; }
+.pick input { position: absolute; opacity: 0; inset: 0; }
+.pick span { display: block; padding: 9px 14px; border-radius: 999px; border: 1.5px solid var(--line); font-size: 15px; font-weight: 600; transition: background-color .15s, border-color .15s; }
+.pick:hover span { border-color: var(--ink); }
+.pick input:checked + span { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.pick input:focus-visible + span { outline: 2.5px solid var(--blue); outline-offset: 2px; }
+.times { display: flex; flex-wrap: wrap; gap: 10px 22px; margin-top: 14px; font-weight: 600; }
+.times input { margin-left: 6px; padding: 7px 10px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--bg); font-weight: 700; }
+.sheet-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; position: sticky; bottom: 0; margin: 0 -26px -26px; padding: 16px 26px; background: var(--surface); border-top: 1.5px solid var(--line); }
+
 /* ---------- Italia adesso ---------- */
 
 .italy-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 18px; }
@@ -478,7 +561,7 @@ section[id] { scroll-margin-top: 90px; }
   .site-nav { display: flex; gap: 4px; margin-right: auto; }
   .site-nav a { padding: 9px 13px; border-radius: 999px; font-size: 15px; font-weight: 600; text-decoration: none; white-space: nowrap; }
   .site-nav a:hover { background: var(--soft); }
-  @media (max-width: 1180px) { .top { gap: 14px; } .site-nav { gap: 0; } .site-nav a { padding: 8px 9px; font-size: 14px; } }
+  @media (max-width: 1240px) { .top { gap: 14px; } .site-nav { gap: 0; } .site-nav a { padding: 8px 9px; font-size: 14px; } }
   .site-nav a[aria-current="true"] { background: var(--ink); color: var(--bg); }
   .search { flex: 0 1 300px; min-width: 190px; margin-left: 0; }
   .favs { margin: 0; padding-block: 10px; }
@@ -538,6 +621,15 @@ section[id] { scroll-margin-top: 90px; }
   .hourly .card-head h2 { font-size: 36px; }
   .days button { padding-block: 12px; font-size: 17px; }
   .m-name, .hl-name, .hl-val { font-size: 18px; }
+  .sea-hours { width: 100%; }
+  .sea-hours li { flex: 1; min-width: 0; }
+  .sea-wrap { overflow-x: visible; margin: 0; padding: 0; }
+  .plan-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .plan-list:has(.p-none) { grid-template-columns: 1fr; }
+  .plan-list button { height: 100%; grid-template-columns: 44px minmax(0, 1fr); align-content: start; }
+  .plan-list .p-word { grid-column: 2; }
+  .plan-list .p-why { grid-column: 1 / -1; margin-top: 8px; }
+  .mine:hover { translate: none; box-shadow: 5px 5px 0 var(--ink); }
 
   .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .tile.sun-tile { grid-column: span 2; grid-row: span 2; }

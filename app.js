@@ -224,7 +224,7 @@
       ...coords(place), forecast_days: 7, past_days: 1, wind_speed_unit: "kmh",
       current: "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m",
       minutely_15: "precipitation",
-      hourly: "temperature_2m,apparent_temperature,relative_humidity_2m,precipitation_probability,precipitation,weather_code,is_day,cloud_cover,wind_speed_10m,wind_gusts_10m,uv_index,visibility",
+      hourly: "temperature_2m,apparent_temperature,relative_humidity_2m,precipitation_probability,precipitation,weather_code,is_day,cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility",
       daily: "weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum,snowfall_sum,precipitation_probability_max,wind_gusts_10m_max",
     });
     return `https://api.open-meteo.com/v1/forecast?${p}`;
@@ -240,7 +240,11 @@
   }
 
   function seaURL(place) {
-    const p = new URLSearchParams({ ...coords(place), current: "wave_height,sea_surface_temperature" });
+    const p = new URLSearchParams({
+      ...coords(place), forecast_days: 7,
+      current: "wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_period,sea_surface_temperature",
+      hourly: "wave_height,wave_direction,wave_period,sea_surface_temperature",
+    });
     return `https://marine-api.open-meteo.com/v1/marine?${p}`;
   }
 
@@ -302,7 +306,8 @@
       state.data = alignToToday(data);
       state.air = air;
       // Il servizio marino risponde con la cella di mare più vicina: la mostriamo solo se è davvero vicina.
-      state.sea = sea?.current?.wave_height != null && kmBetween(place.lat, place.lon, sea.latitude, sea.longitude) <= 40 ? sea.current : null;
+      const nearSea = sea?.current?.wave_height != null && kmBetween(place.lat, place.lon, sea.latitude, sea.longitude) <= 40;
+      state.sea = nearSea ? { now: sea.current, hourly: sea.hourly, index: new Map((sea.hourly?.time ?? []).map((t, i) => [t, i])) } : null;
       state.trust = trustFrom(models, data.daily.time);
       state.selectedDay = 0;
       state.preview = null;
@@ -369,7 +374,10 @@
     renderAlerts();
     renderHours();
     renderDays();
+    renderMine();
     renderMoments();
+    renderPlan();
+    renderSeaWind();
     renderHealth();
     renderTiles();
 
@@ -660,56 +668,351 @@
     return { phase, lit: (1 - Math.cos(2 * Math.PI * phase)) / 2 };
   }
 
+  // Valore orario del mare (onde, direzione…) per l'ora indicata, se siamo vicino alla costa.
+  function seaAt(key, iso) {
+    const i = state.sea?.index.get(iso);
+    return i == null ? null : state.sea.hourly[key]?.[i] ?? null;
+  }
+
+  const KN = 1 / 1.852;
+
   function hourFacts(i) {
     const h = state.data.hourly;
     const prob = h.precipitation_probability[i] ?? 0;
     const falling = isWet(h.weather_code[i]) || isSnow(h.weather_code[i]);
+    const gusts = h.wind_gusts_10m[i] ?? h.wind_speed_10m[i];
     return {
-      t: h.apparent_temperature[i], wind: h.wind_speed_10m[i], gusts: h.wind_gusts_10m[i] ?? h.wind_speed_10m[i],
+      i, hour: Number(hourOf(h.time[i])), prob,
+      t: h.apparent_temperature[i], wind: h.wind_speed_10m[i], gusts, kn: h.wind_speed_10m[i] * KN, gustKn: gusts * KN,
       hum: h.relative_humidity_2m[i], clouds: h.cloud_cover[i] ?? 50, day: !!h.is_day[i],
+      wave: seaAt("wave_height", h.time[i]) ?? 0, moon: moonIllumination(new Date(h.time[i])).lit,
       dry: down(prob, 20, 60) * (falling ? 0.2 : 1),
+      veryDry: down(prob, 10, 40) * (falling ? 0.1 : 1),
     };
   }
 
+  // Ogni attività dà un voto da 0 a 1 a ciascuna ora. `min` = ore consecutive che servono.
   const ACTIVITIES = [
-    { name: "Corsa", score: (f) => band(f.t, -2, 6, 20, 28) * f.dry * down(f.wind, 25, 45) },
-    { name: "Bici", score: (f) => band(f.t, 3, 10, 26, 33) * f.dry * down(f.gusts, 30, 55) * (f.day ? 1 : 0.4) },
-    { name: "Tavolino all'aperto", score: (f) => band(f.t, 10, 17, 28, 34) * f.dry * down(f.wind, 18, 35) },
-    { name: "Bucato steso", score: (f) => (f.day ? f.dry * down(f.hum, 60, 90) * up(f.t, 2, 12) * (0.7 + 0.3 * up(f.wind, 3, 15)) : 0) },
-    { name: "Guardare le stelle", score: (f, x) => (f.day ? 0 : down(f.clouds, 15, 70) * f.dry * (1 - 0.4 * x.moon)) },
-    { name: "Spiaggia", needsSea: true, score: (f, x) => (f.day ? up(f.t, 21, 27) * f.dry * down(f.wind, 20, 40) * down(x.wave, 0.8, 1.8) : 0) },
+    { id: "run", name: "Corsa", min: 1, score: (f) => band(f.t, -2, 6, 20, 28) * f.dry * down(f.wind, 25, 45) },
+    { id: "bike", name: "Bici", min: 2, score: (f) => band(f.t, 3, 10, 26, 33) * f.dry * down(f.gusts, 30, 55) * (f.day ? 1 : 0.4) },
+    { id: "dog", name: "Passeggiata col cane", min: 1, score: (f) => band(f.t, -4, 4, 24, 30) * f.dry * down(f.wind, 30, 50) },
+    { id: "table", name: "Tavolino all'aperto", min: 2, score: (f) => band(f.t, 10, 17, 28, 34) * f.dry * down(f.wind, 18, 35) },
+    { id: "laundry", name: "Bucato steso", min: 4, score: (f) => (f.day ? f.dry * down(f.hum, 60, 90) * up(f.t, 2, 12) * (0.7 + 0.3 * up(f.wind, 3, 15)) : 0) },
+    { id: "bbq", name: "Grigliata", min: 3, score: (f) => (f.hour >= 11 && f.hour <= 22 ? band(f.t, 8, 15, 30, 35) * f.veryDry * down(f.wind, 15, 30) : 0) },
+    { id: "trip", name: "Gita fuori porta", min: 6, score: (f) => (f.day ? band(f.t, 6, 13, 28, 34) * f.veryDry * down(f.wind, 25, 45) * (0.75 + 0.25 * down(f.clouds, 40, 95)) : 0) },
+    { id: "works", name: "Lavori all'aperto", min: 4, score: (f) => (f.day ? band(f.t, 3, 9, 29, 34) * f.veryDry * down(f.hum, 70, 92) * down(f.wind, 20, 38) : 0) },
+    { id: "moto", name: "Giro in moto", min: 2, score: (f) => (f.day ? band(f.t, 5, 12, 30, 36) * f.veryDry * down(f.gusts, 35, 60) : 0) },
+    { id: "stars", name: "Guardare le stelle", min: 2, score: (f) => (f.day ? 0 : down(f.clouds, 15, 70) * f.dry * (1 - 0.4 * f.moon)) },
+    { id: "beach", name: "Spiaggia", min: 3, sea: true, score: (f) => (f.day ? up(f.t, 21, 27) * f.dry * down(f.wind, 20, 40) * down(f.wave, 0.8, 1.8) : 0) },
+    { id: "sail", name: "Vela", min: 3, sea: true, score: (f) => (f.day ? band(f.kn, 5, 9, 18, 25) * down(f.gustKn, 24, 34) * down(f.wave, 1.2, 2.2) * (0.6 + 0.4 * f.dry) : 0) },
+    { id: "boat", name: "Uscita in barca", min: 3, sea: true, score: (f) => (f.day ? down(f.kn, 9, 17) * down(f.wave, 0.4, 1) * f.dry : 0) },
   ];
+  const DEFAULT_LIKES = ["run", "bike", "table", "laundry", "stars", "beach"];
+  const activity = (id) => ACTIVITIES.find((a) => a.id === id);
+  const available = () => ACTIVITIES.filter((a) => !a.sea || state.sea);
+  const verdictWord = (score) => (score >= 0.8 ? "Ottimo" : score >= 0.6 ? "Buono" : "Discreto");
+
+  // La finestra migliore dentro una serie di voti: parte dall'ora migliore e si allarga finché resta buona.
+  function bestWindow(scores, min = 1) {
+    const best = scores.indexOf(Math.max(...scores));
+    if (best < 0 || scores[best] < 0.4) return null;
+    const grow = (floor) => {
+      let l = best, r = best;
+      while (l > 0 && scores[l - 1] >= floor) l--;
+      while (r < scores.length - 1 && scores[r + 1] >= floor) r++;
+      return [l, r];
+    };
+    let [l, r] = grow(Math.max(0.4, scores[best] - 0.2));
+    if (r - l + 1 < min) [l, r] = grow(0.4);
+    if (r - l + 1 < min) return null;
+    const mean = scores.slice(l, r + 1).reduce((a, b) => a + b, 0) / (r - l + 1);
+    return { l, r, best, mean };
+  }
+
+  // Voti e finestra migliore di un'attività nelle prossime 24 ore.
+  function nextDay(a) {
+    const h = state.data.hourly, idx = ahead(24);
+    const scores = idx.map((i) => a.score(hourFacts(i)));
+    const win = bestWindow(scores);
+    if (!win) return { scores, idx, text: "Meglio di no", html: "Meglio di no", mean: 0 };
+    const startIso = h.time[idx[win.l]];
+    const endHour = (Number(hourOf(h.time[idx[win.r]])) + 1) % 24;
+    const range = win.l === 0 ? `da adesso alle ${endHour}` : `${isToday(startIso) ? "oggi" : "domani"} ${Number(hourOf(startIso))}–${endHour}`;
+    const word = verdictWord(scores[win.best]);
+    return { scores, idx, mean: scores[win.best], text: `${word.toLowerCase()} ${range}`, html: `<b>${word}</b> · ${range}` };
+  }
 
   function renderMoments() {
     const h = state.data.hourly;
-    const idx = ahead(24);
-    const extra = { moon: moonIllumination().lit, wave: state.sea?.wave_height ?? 0 };
-    const facts = idx.map(hourFacts);
+    const likes = me?.likes?.length ? me.likes : DEFAULT_LIKES;
+    const list = available().filter((a) => likes.includes(a.id));
+    let idx = ahead(24);
 
-    $("moments").innerHTML = ACTIVITIES.filter((a) => !a.needsSea || state.sea).map((a) => {
-      const scores = facts.map((f) => a.score(f, extra));
-      const best = scores.indexOf(Math.max(...scores));
-      let verdict;
-      if (scores[best] < 0.4) {
-        verdict = "Meglio di no";
-      } else {
-        const floor = Math.max(0.4, scores[best] - 0.2);
-        let l = best, r = best;
-        while (l > 0 && scores[l - 1] >= floor) l--;
-        while (r < scores.length - 1 && scores[r + 1] >= floor) r++;
-        const word = scores[best] >= 0.8 ? "Ottimo" : scores[best] >= 0.6 ? "Buono" : "Discreto";
-        const startIso = h.time[idx[l]];
-        const endHour = (Number(hourOf(h.time[idx[r]])) + 1) % 24;
-        const range = l === 0 ? `da adesso alle ${endHour}` : `${isToday(startIso) ? "oggi" : "domani"} ${Number(hourOf(startIso))}–${endHour}`;
-        verdict = `<b>${word}</b> · ${range}`;
-      }
-      const strip = scores.map((s) => `<i class="${s < 0.15 ? "off" : ""}" style="--s:${s.toFixed(2)}"></i>`).join("");
-      return `<li><span class="m-name">${a.name}</span><span class="m-when">${verdict}</span><span class="m-strip">${strip}</span></li>`;
+    $("moments").innerHTML = list.map((a) => {
+      const day = nextDay(a);
+      idx = day.idx;
+      const strip = day.scores.map((s) => `<i class="${s < 0.15 ? "off" : ""}" style="--s:${s.toFixed(2)}"></i>`).join("");
+      return `<li><span class="m-name">${a.name}</span><span class="m-when">${day.html}</span><span class="m-strip">${strip}</span></li>`;
     }).join("");
 
     const tick = (k) => (idx[k] != null ? hourOf(h.time[idx[k]]) : "");
     $("moments-axis").innerHTML = ["Ora", tick(6), tick(12), tick(18), tick(23)].map((t) => `<span>${t}</span>`).join("");
   }
+
+  /* ---------- Il mio meteo: le risposte su misura. Il profilo resta nel browser. ---------- */
+
+  let me = store.get("cielo:me", null);
+  const MODES = { walk: "A piedi", bike: "In bici", moto: "In moto", car: "In auto", transit: "Con i mezzi" };
+
+  // L'indice orario della prossima volta che scocca quell'ora (oggi se deve ancora venire, altrimenti domani).
+  function nextAt(hhmmText) {
+    const h = state.data.hourly, hour = hhmmText.slice(0, 2);
+    for (let i = state.nowIndex; i < Math.min(state.nowIndex + 25, h.time.length); i++) if (hourOf(h.time[i]) === hour) return i;
+    return null;
+  }
+
+  function commuteLeg(mode, hhmmText, word) {
+    const i = nextAt(hhmmText);
+    if (i == null) return null;
+    const h = state.data.hourly, f = hourFacts(i), code = h.weather_code[i];
+    const exposed = mode !== "car";
+    const issues = [];
+    const raining = f.prob >= 50 || isWet(code);
+    if (isSnow(code)) issues.push("neve");
+    else if (exposed && raining) issues.push(`pioggia probabile (${f.prob}%)`);
+    else if (!exposed && [65, 67, 82, 95, 96, 99].includes(code)) issues.push("pioggia intensa");
+    if ((mode === "bike" || mode === "moto") && f.gusts >= 45) issues.push(`raffiche a ${round(f.gusts)} km/h`);
+    if (h.temperature_2m[i] <= 1) issues.push(mode === "walk" || mode === "transit" ? "marciapiedi ghiacciati" : "rischio ghiaccio");
+    if ((mode === "car" || mode === "moto") && kind(code) === "fog") issues.push("nebbia");
+    const whenText = `${word} alle ${Number(hourOf(h.time[i]))}${isToday(h.time[i]) ? "" : " di domani"}`;
+    return { bad: issues.length > 0, text: `${whenText}: ${issues.length ? issues.join(", ") : `asciutto, ${round(h.temperature_2m[i])}°`}` };
+  }
+
+  function mineLines() {
+    const { data, air } = state;
+    const h = data.hourly, d = data.daily;
+    const lines = [];
+
+    if (me.mode && MODES[me.mode]) {
+      const legs = [commuteLeg(me.mode, me.out, "andata"), commuteLeg(me.mode, me.back, "ritorno")].filter(Boolean);
+      if (legs.length) {
+        const tips = { walk: "Prendi l'ombrello.", bike: "Porta l'antipioggia o cambia mezzo.", moto: "Antipioggia e prudenza.", car: "Parti con qualche minuto di margine.", transit: "Prendi l'ombrello per il tratto a piedi." };
+        const bad = legs.some((l) => l.bad);
+        const text = legs.map((l) => l.text).join("; ");
+        lines.push({ level: bad ? "warn" : "ok", title: MODES[me.mode], text: `${text[0].toUpperCase()}${text.slice(1)}.${bad ? " " + tips[me.mode] : ""}` });
+      }
+    }
+
+    for (const a of available().filter((x) => me.likes?.includes(x.id))) {
+      const day = nextDay(a);
+      lines.push({ level: day.mean >= 0.6 ? "ok" : day.mean >= 0.4 ? "warn" : "bad", title: a.name, text: day.mean ? `${day.text[0].toUpperCase()}${day.text.slice(1)}.` : "Nelle prossime 24 ore meglio di no." });
+    }
+
+    if (me.garden) {
+      const next = ahead(48);
+      const rain = next.reduce((sum, i) => sum + (h.precipitation[i] ?? 0), 0);
+      const coldest = Math.min(...ahead(24).map((i) => h.temperature_2m[i]));
+      if (coldest <= 1) lines.push({ level: "bad", title: "Orto e giardino", text: `Gelo in arrivo (fino a ${round(coldest)}°): copri le piante delicate.` });
+      else if (rain >= 5) lines.push({ level: "ok", title: "Orto e giardino", text: `Non serve annaffiare: circa ${round(rain)} mm di pioggia nelle prossime 48 ore.` });
+      else if (d.temperature_2m_max[0] >= 28) lines.push({ level: "warn", title: "Orto e giardino", text: "Giornata calda e niente pioggia: annaffia la sera." });
+      else lines.push({ level: "ok", title: "Orto e giardino", text: "Niente pioggia per 48 ore: annaffia se la terra è asciutta." });
+    }
+
+    if (me.uv) {
+      const sunny = h.time.map((t, i) => i).filter((i) => isToday(h.time[i]) && (h.uv_index[i] ?? 0) >= 3);
+      lines.push(sunny.length
+        ? { level: "warn", title: "Sole", text: `Crema solare dalle ${Number(hourOf(h.time[sunny[0]]))} alle ${Number(hourOf(h.time[sunny.at(-1)])) + 1}: UV fino a ${round(d.uv_index_max[0] ?? 0)}.` }
+        : { level: "ok", title: "Sole", text: "UV basso tutto il giorno: oggi niente crema." });
+    }
+
+    for (const key of me.pollen ?? []) {
+      const values = (air?.hourly?.[key] ?? []).filter((v) => v != null);
+      if (!values.length) { lines.push({ level: "ok", title: POLLEN[key], text: "Nessun dato sui pollini per questa zona." }); continue; }
+      const peak = Math.max(...values), level = peak < 1 ? 0 : peak < 10 ? 1 : peak < 50 ? 2 : 3;
+      lines.push({ level: level >= 3 ? "bad" : level === 2 ? "warn" : "ok", title: POLLEN[key], text: level ? `Polline ${POLLEN_LEVEL[level]} oggi.` : "Nessun polline oggi." });
+    }
+    return lines;
+  }
+
+  function renderMine() {
+    const lines = me ? mineLines() : [];
+    $("mine-empty").hidden = lines.length > 0;
+    $("me-edit").hidden = !lines.length;
+    $("mine").hidden = !lines.length;
+    $("mine").innerHTML = lines.map((l) => `<li class="${l.level}"><i aria-hidden="true"></i><span><b>${esc(l.title)}</b> ${esc(l.text)}</span></li>`).join("");
+  }
+
+  function openProfile() {
+    const form = $("me-form");
+    $("me-likes").innerHTML = ACTIVITIES.map((a) => `<label class="pick"><input type="checkbox" name="like" value="${a.id}"><span>${a.name}</span></label>`).join("");
+    $("me-pollen").innerHTML = Object.entries(POLLEN).map(([key, name]) => `<label class="pick"><input type="checkbox" name="pollen" value="${key}"><span>${name}</span></label>`).join("");
+    const cur = me ?? {};
+    form.elements.mode.value = cur.mode ?? "";
+    form.elements.out.value = cur.out ?? "08:00";
+    form.elements.back.value = cur.back ?? "18:00";
+    form.elements.garden.checked = !!cur.garden;
+    form.elements.uv.checked = !!cur.uv;
+    form.querySelectorAll('[name="like"]').forEach((el) => { el.checked = !!cur.likes?.includes(el.value); });
+    form.querySelectorAll('[name="pollen"]').forEach((el) => { el.checked = !!cur.pollen?.includes(el.value); });
+    $("me-dialog").showModal();
+  }
+
+  $("me-start").addEventListener("click", openProfile);
+  $("me-edit").addEventListener("click", openProfile);
+  $("me-dialog").addEventListener("click", (e) => { if (e.target === e.currentTarget) e.currentTarget.close(); }); // clic fuori = chiudi
+  $("me-form").addEventListener("submit", () => {
+    const form = $("me-form");
+    const picked = (name) => [...form.querySelectorAll(`[name="${name}"]:checked`)].map((el) => el.value);
+    me = {
+      mode: form.elements.mode.value, out: form.elements.out.value || "08:00", back: form.elements.back.value || "18:00",
+      likes: picked("like"), pollen: picked("pollen"), garden: form.elements.garden.checked, uv: form.elements.uv.checked,
+    };
+    store.set("cielo:me", me);
+    if (state.data) { renderMine(); renderMoments(); }
+  });
+  $("me-clear").addEventListener("click", () => {
+    me = null;
+    try { localStorage.removeItem("cielo:me"); } catch { /* storage non disponibile */ }
+    $("me-dialog").close();
+    if (state.data) { renderMine(); renderMoments(); }
+  });
+
+  /* ---------- Quando conviene? I momenti migliori dei prossimi 7 giorni. ---------- */
+
+  let planId = store.get("cielo:plan", "bbq");
+
+  function planFor(a) {
+    const { data, trust } = state;
+    const h = data.hourly;
+    const found = [];
+    data.daily.time.forEach((date, dayIndex) => {
+      const idx = h.time.map((t, i) => i).filter((i) => h.time[i].startsWith(date) && i >= state.nowIndex);
+      if (idx.length < a.min) return;
+      const facts = idx.map(hourFacts);
+      const win = bestWindow(facts.map((f) => a.score(f)), a.min);
+      if (!win) return;
+      const slice = facts.slice(win.l, win.r + 1);
+      const t = trust?.[dayIndex] ?? null;
+      // A parità di condizioni, vince il giorno su cui i modelli sono più d'accordo.
+      found.push({ dayIndex, slice, t, mean: win.mean, rank: win.mean * (t === 1 ? 0.75 : t === 2 ? 0.9 : 1) });
+    });
+    return found.sort((x, y) => y.rank - x.rank).slice(0, 3);
+  }
+
+  function renderPlan() {
+    const list = available();
+    if (!list.some((a) => a.id === planId)) planId = "bbq";
+    $("plan-picks").innerHTML = list.map((a) => `<button type="button" data-plan="${a.id}" aria-pressed="${a.id === planId}">${a.name}</button>`).join("");
+
+    const a = activity(planId), h = state.data.hourly;
+    const options = planFor(a);
+    $("plan").innerHTML = options.length ? options.map((o, n) => {
+      const first = o.slice[0], last = o.slice.at(-1);
+      const temps = o.slice.map((f) => f.t);
+      const facts = [
+        `${round(Math.min(...temps))}–${round(Math.max(...temps))}° percepiti`,
+        `pioggia max ${Math.max(...o.slice.map((f) => f.prob))}%`,
+        a.sea ? `vento ${round(Math.max(...o.slice.map((f) => f.kn)))} nodi, onde ${comma(Math.max(...o.slice.map((f) => f.wave)))} m`
+          : `vento fino a ${round(Math.max(...o.slice.map((f) => f.wind)))} km/h`,
+      ];
+      const day = o.dayIndex === 0 ? "Oggi" : o.dayIndex === 1 ? "Domani"
+        : new Date(state.data.daily.time[o.dayIndex] + "T12:00").toLocaleDateString("it-IT", { weekday: "long", day: "numeric" });
+      const meter = o.t ? `<span class="trust t${o.t}" title="Affidabilità ${TRUST[o.t]}"><i></i><i></i><i></i></span>` : "";
+      return `<li><button type="button" data-day="${o.dayIndex}">
+        <span class="p-rank">${n + 1}</span>
+        <span class="p-main"><b>${esc(day)}</b>, dalle ${first.hour} alle ${(last.hour + 1) % 24}</span>
+        <span class="p-word">${verdictWord(o.mean)} ${meter}</span>
+        <span class="p-why">${facts.join(" · ")}${o.t ? ` · affidabilità ${TRUST[o.t]}` : ""}</span>
+      </button></li>`;
+    }).join("") : `<li class="p-none">Nei prossimi 7 giorni non c'è un momento adatto per «${esc(a.name.toLowerCase())}». Riprova tra un paio di giorni: le previsioni cambiano.</li>`;
+  }
+
+  $("plan-picks").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-plan]");
+    if (!b) return;
+    planId = b.dataset.plan;
+    store.set("cielo:plan", planId);
+    $("plan-answer").hidden = true;
+    renderPlan();
+  });
+  $("plan").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-day]");
+    if (!b) return;
+    selectDay(Number(b.dataset.day));
+    $("ora").scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
+  });
+  $("plan-ask").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = $("plan-input").value.trim();
+    if (!text || !state.data) return;
+    const out = $("plan-answer"), id = state.requestId;
+    out.innerHTML = '<span class="sk sk-line"></span><span class="sk sk-line short"></span>';
+    out.hidden = false;
+    const ai = await askAI({ q: `Quando conviene, nei prossimi 7 giorni, per: ${text}? Indica giorno e orario migliori.` });
+    if (id !== state.requestId) return;
+    out.textContent = ai?.text.trim() ?? "Non riesco a rispondere in questo momento. Riprova tra poco.";
+  });
+
+  /* ---------- Mare e vento ---------- */
+
+  const WINDS = ["Tramontana", "Grecale", "Levante", "Scirocco", "Ostro", "Libeccio", "Ponente", "Maestrale"];
+  const BEAUFORT = [[1, "calma"], [3, "bava di vento"], [6, "brezza leggera"], [10, "brezza tesa"], [16, "vento moderato"], [21, "vento teso"],
+    [27, "vento fresco"], [33, "vento forte"], [40, "burrasca"], [47, "burrasca forte"], [55, "tempesta"], [63, "tempesta violenta"], [Infinity, "uragano"]];
+  const beaufort = (kn) => BEAUFORT.findIndex(([limit]) => kn < limit);
+  const sector = (deg) => Math.round(deg / 45) % 8;
+  const seaState = (m) => (m < 0.1 ? "calmo" : m < 0.5 ? "quasi calmo" : m < 1.25 ? "poco mosso" : m < 2.5 ? "mosso" : m < 4 ? "molto mosso" : "agitato");
+  let knots = store.get("cielo:knots", true);
+  const speed = (kmh) => round(knots ? kmh * KN : kmh);
+  const unit = () => (knots ? "nodi" : "km/h");
+  const windArrow = (deg) => `<svg class="w-arrow" viewBox="0 0 24 24" style="rotate:${(deg + 180) % 360}deg" aria-hidden="true"><path d="M12 3l6 16-6-4-6 4z" fill="currentColor"/></svg>`;
+
+  function renderSeaWind() {
+    const { data, sea } = state;
+    const c = data.current, h = data.hourly;
+    const kn = c.wind_speed_10m * KN, force = beaufort(kn);
+
+    const stat = (title, value, sub) => `<div class="sea-stat"><h3>${title}</h3><div class="t-val">${value}</div><p>${sub}</p></div>`;
+    const stats = [stat("Vento", `${speed(c.wind_speed_10m)}<small>${knots && speed(c.wind_speed_10m) === 1 ? "nodo" : unit()}</small>`,
+      `${windArrow(c.wind_direction_10m)}${WINDS[sector(c.wind_direction_10m)]} da ${COMPASS[sector(c.wind_direction_10m)]} · forza ${force}, ${BEAUFORT[force][1]} · raffiche ${speed(c.wind_gusts_10m)}`)];
+    if (sea) {
+      const n = sea.now;
+      stats.push(stat("Onde", `${comma(n.wave_height)}<small>m</small>`,
+        `Mare ${seaState(n.wave_height)}${n.wave_direction != null ? ` · da ${COMPASS[sector(n.wave_direction)]}` : ""}${n.wave_period != null ? ` · periodo ${round(n.wave_period)} s` : ""}`));
+      if (n.swell_wave_height != null) stats.push(stat("Mare lungo", `${comma(n.swell_wave_height)}<small>m</small>`, n.swell_wave_period != null ? `Periodo ${round(n.swell_wave_period)} s` : "Onda lunga"));
+      if (n.sea_surface_temperature != null) stats.push(stat("Acqua", `${round(n.sea_surface_temperature)}°`, n.sea_surface_temperature >= 24 ? "Calda" : n.sea_surface_temperature >= 20 ? "Gradevole" : n.sea_surface_temperature >= 16 ? "Fresca" : "Fredda"));
+    }
+    $("sea-now").innerHTML = stats.join("");
+
+    const day = state.selectedDay;
+    const from = day === 0 ? state.nowIndex : h.time.findIndex((t) => t.startsWith(data.daily.time[day]));
+    const to = Math.min(from + 24, h.time.length);
+    let html = "";
+    for (let i = from; i < to; i++) {
+      const hourKn = h.wind_speed_10m[i] * KN, wave = seaAt("wave_height", h.time[i]);
+      const tone = hourKn >= 28 ? "var(--warm)" : `color-mix(in srgb, var(--blue) ${Math.round(8 + clamp01(hourKn / 28) * 72)}%, transparent)`;
+      html += `<li>
+        <span class="s-time">${day === 0 && i === from ? "Ora" : hourOf(h.time[i])}</span>
+        ${windArrow(h.wind_direction_10m[i])}
+        <span class="s-wind" style="background:${tone}">${speed(h.wind_speed_10m[i])}</span>
+        <span class="s-gust">${speed(h.wind_gusts_10m[i] ?? h.wind_speed_10m[i])}</span>
+        ${sea ? `<span class="s-wave"><i style="height:${wave == null ? 0 : Math.round(4 + clamp01(wave / 2.5) * 34)}px"></i></span><span class="s-m">${wave == null ? "—" : comma(wave)}</span>` : ""}
+      </li>`;
+    }
+    $("sea-hours").innerHTML = html;
+    $("sea-day").innerHTML = `<b>${day === 0 ? "Prossime 24 ore" : dayName(day, "long")}</b> · vento medio, raffiche${sea ? " e altezza delle onde (m)" : ""}, in ${unit()}`;
+    $("sea-note").textContent = sea
+      ? "Le frecce indicano dove va il vento. Dati del mare dalla cella più vicina alla costa: sotto riva le condizioni possono cambiare."
+      : "Qui il mare è lontano: mostro solo il vento. Cerca una località di costa per vedere onde e temperatura dell'acqua.";
+    document.querySelectorAll(".seg button").forEach((b) => b.setAttribute("aria-pressed", String((b.dataset.unit === "kn") === knots)));
+  }
+
+  document.querySelector(".seg").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-unit]");
+    if (!b) return;
+    knots = b.dataset.unit === "kn";
+    store.set("cielo:knots", knots);
+    if (state.data) renderSeaWind();
+  });
 
   /* ---------- Aria e salute ---------- */
 
@@ -759,10 +1062,9 @@
 
   const COMPASS = ["N", "NE", "E", "SE", "S", "SO", "O", "NO"];
   const MOON = ["Luna nuova", "Falce crescente", "Primo quarto", "Gibbosa crescente", "Luna piena", "Gibbosa calante", "Ultimo quarto", "Falce calante"];
-  const seaState = (m) => (m < 0.1 ? "calmo" : m < 0.5 ? "quasi calmo" : m < 1.25 ? "poco mosso" : m < 2.5 ? "mosso" : m < 4 ? "molto mosso" : "agitato");
 
   function renderTiles() {
-    const { data, sea, nowIndex: i } = state;
+    const { data, nowIndex: i } = state;
     const c = data.current, h = data.hourly, d = data.daily;
     const vis = h.visibility[i];
     const dir = c.wind_direction_10m;
@@ -783,8 +1085,6 @@
         <circle cx="32" cy="32" r="20" fill="currentColor" fill-opacity=".1"/><path d="${lit}" fill="#F6E7A1"/>
         <circle cx="32" cy="32" r="20" fill="none" stroke="currentColor" stroke-width="2.5"/></svg>`;
 
-    const waves = `<svg class="t-g" viewBox="0 0 64 64" aria-hidden="true"><g class="wave" fill="none" stroke="var(--blue)" stroke-width="3.5" stroke-linecap="round">
-        <path d="M-32 24q8-8 16 0t16 0 16 0 16 0 16 0 16 0 16 0"/><path d="M-32 38q8-8 16 0t16 0 16 0 16 0 16 0 16 0 16 0" stroke-opacity=".55"/><path d="M-32 52q8-8 16 0t16 0 16 0 16 0 16 0 16 0 16 0" stroke-opacity=".25"/></g></svg>`;
 
     const tiles = [
       ["Vento", `${round(c.wind_speed_10m)}<small>km/h</small>`, `da ${COMPASS[Math.round(dir / 45) % 8]} · raffiche ${round(c.wind_gusts_10m)}`, compass],
@@ -794,10 +1094,6 @@
       ["Visibilità", vis == null ? "—" : `${vis >= 10000 ? round(vis / 1000) : comma(vis / 1000)}<small>km</small>`, vis == null ? "" : vis >= 10000 ? "Ottima" : vis >= 4000 ? "Buona" : "Ridotta"],
       ["Luna", `${round(moon.lit * 100)}<small>%</small>`, MOON[Math.round(moon.phase * 8) % 8], moonSvg],
     ];
-    if (sea) {
-      tiles.push(["Mare", sea.sea_surface_temperature == null ? "—" : `${round(sea.sea_surface_temperature)}°<small>acqua</small>`,
-        `Onde ${comma(sea.wave_height)} m · ${seaState(sea.wave_height)}`, waves]);
-    }
 
     // Il percorso del sole: un arco dall'alba al tramonto con il sole nel punto in cui si trova ora.
     const f = clamp01((new Date(c.time) - new Date(d.sunrise[0])) / (new Date(d.sunset[0]) - new Date(d.sunrise[0])));
@@ -868,6 +1164,7 @@
     state.selectedDay = i;
     if (state.preview != null) { state.preview = null; renderSky(); }
     renderHours();
+    renderSeaWind();
     document.querySelectorAll("#days button").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.day) === i)));
   }
 
@@ -1109,6 +1406,7 @@
     if (state.preview == null) renderLead(true);
     $("ai-chips").hidden = false;
     $("ask").hidden = !state.aiAvailable;
+    $("plan-ask").hidden = !state.aiAvailable;
     document.querySelectorAll("[data-ai-only]").forEach((el) => { el.hidden = !state.aiAvailable; });
     $("ai-note").textContent = state.aiAvailable ? "Titolo e risposte sono scritti da un'AI: possono contenere imprecisioni." : "";
   }
@@ -1160,7 +1458,7 @@
     ["Cagliari", "Sardegna", 39.22, 9.12],
   ];
 
-  async function loadItaly() {
+  async function loadItaly(retried = false) {
     try {
       // Una sola richiesta per tutte le città, tenuta in memoria per un quarto d'ora.
       let cached = null;
@@ -1179,7 +1477,10 @@
       $("italy").innerHTML = ITALY.map(([name], i) =>
         `<li><button type="button" data-city="${i}"><span>${name}</span>${icon(rows[i].weather_code, !!rows[i].is_day)}<span class="i-temp">${round(rows[i].temperature_2m)}°</span></button></li>`).join("");
       $("italia").hidden = false;
-    } catch { /* sezione facoltativa: senza dati resta nascosta */ }
+    } catch {
+      // Sezione facoltativa: un secondo tentativo, poi resta nascosta.
+      if (!retried) setTimeout(() => loadItaly(true), 4000);
+    }
   }
 
   $("italy").addEventListener("click", (e) => {
