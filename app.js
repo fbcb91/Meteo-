@@ -309,6 +309,7 @@
       const nearSea = sea?.current?.wave_height != null && kmBetween(place.lat, place.lon, sea.latitude, sea.longitude) <= 40;
       state.sea = nearSea ? { now: sea.current, hourly: sea.hourly, index: new Map((sea.hourly?.time ?? []).map((t, i) => [t, i])) } : null;
       state.trust = trustFrom(models, data.daily.time);
+      factsCache = new Map();
       state.selectedDay = 0;
       state.preview = null;
       state.summary = null;
@@ -369,17 +370,10 @@
     renderSky();
     $("fav-toggle").hidden = false;
     $("share").hidden = false;
-    renderFavs();
-    renderNowcast();
-    renderAlerts();
-    renderHours();
-    renderDays();
-    renderMine();
-    renderMoments();
-    renderPlan();
-    renderSeaWind();
-    renderHealth();
-    renderTiles();
+    // Ogni sezione è indipendente: se una fallisce (dato mancante, servizio giù) le altre restano in piedi.
+    for (const section of [renderFavs, renderNowcast, renderAlerts, renderMine, renderHours, renderDays, renderMoments, renderPlan, renderSeaWind, renderHealth, renderTiles]) {
+      try { section(); } catch (err) { console.error(`${section.name}:`, err); }
+    }
 
     const app = $("app");
     app.setAttribute("aria-busy", "false");
@@ -676,38 +670,63 @@
 
   const KN = 1 / 1.852;
 
+  // I "fatti" di un'ora, calcolati una volta sola per caricamento.
+  let factsCache = new Map();
   function hourFacts(i) {
+    if (factsCache.has(i)) return factsCache.get(i);
     const h = state.data.hourly;
     const prob = h.precipitation_probability[i] ?? 0;
     const falling = isWet(h.weather_code[i]) || isSnow(h.weather_code[i]);
     const gusts = h.wind_gusts_10m[i] ?? h.wind_speed_10m[i];
-    return {
-      i, hour: Number(hourOf(h.time[i])), prob,
+    let rainSoon = 0; // probabilità massima di pioggia nelle 12 ore successive
+    for (let k = i + 1; k <= Math.min(i + 12, h.time.length - 1); k++) rainSoon = Math.max(rainSoon, h.precipitation_probability[k] ?? 0);
+    const facts = {
+      i, hour: Number(hourOf(h.time[i])), prob, rainSoon,
       t: h.apparent_temperature[i], wind: h.wind_speed_10m[i], gusts, kn: h.wind_speed_10m[i] * KN, gustKn: gusts * KN,
       hum: h.relative_humidity_2m[i], clouds: h.cloud_cover[i] ?? 50, day: !!h.is_day[i],
-      wave: seaAt("wave_height", h.time[i]) ?? 0, moon: moonIllumination(new Date(h.time[i])).lit,
+      wave: seaAt("wave_height", h.time[i]) ?? 0, period: seaAt("wave_period", h.time[i]) ?? 0, water: seaAt("sea_surface_temperature", h.time[i]) ?? 0,
+      moon: moonIllumination(new Date(h.time[i])).lit,
       dry: down(prob, 20, 60) * (falling ? 0.2 : 1),
       veryDry: down(prob, 10, 40) * (falling ? 0.1 : 1),
     };
+    factsCache.set(i, facts);
+    return facts;
   }
 
   // Ogni attività dà un voto da 0 a 1 a ciascuna ora. `min` = ore consecutive che servono.
   const ACTIVITIES = [
-    { id: "run", name: "Corsa", min: 1, score: (f) => band(f.t, -2, 6, 20, 28) * f.dry * down(f.wind, 25, 45) },
-    { id: "bike", name: "Bici", min: 2, score: (f) => band(f.t, 3, 10, 26, 33) * f.dry * down(f.gusts, 30, 55) * (f.day ? 1 : 0.4) },
-    { id: "dog", name: "Passeggiata col cane", min: 1, score: (f) => band(f.t, -4, 4, 24, 30) * f.dry * down(f.wind, 30, 50) },
-    { id: "table", name: "Tavolino all'aperto", min: 2, score: (f) => band(f.t, 10, 17, 28, 34) * f.dry * down(f.wind, 18, 35) },
-    { id: "laundry", name: "Bucato steso", min: 4, score: (f) => (f.day ? f.dry * down(f.hum, 60, 90) * up(f.t, 2, 12) * (0.7 + 0.3 * up(f.wind, 3, 15)) : 0) },
-    { id: "bbq", name: "Grigliata", min: 3, score: (f) => (f.hour >= 11 && f.hour <= 22 ? band(f.t, 8, 15, 30, 35) * f.veryDry * down(f.wind, 15, 30) : 0) },
-    { id: "trip", name: "Gita fuori porta", min: 6, score: (f) => (f.day ? band(f.t, 6, 13, 28, 34) * f.veryDry * down(f.wind, 25, 45) * (0.75 + 0.25 * down(f.clouds, 40, 95)) : 0) },
-    { id: "works", name: "Lavori all'aperto", min: 4, score: (f) => (f.day ? band(f.t, 3, 9, 29, 34) * f.veryDry * down(f.hum, 70, 92) * down(f.wind, 20, 38) : 0) },
-    { id: "moto", name: "Giro in moto", min: 2, score: (f) => (f.day ? band(f.t, 5, 12, 30, 36) * f.veryDry * down(f.gusts, 35, 60) : 0) },
-    { id: "stars", name: "Guardare le stelle", min: 2, score: (f) => (f.day ? 0 : down(f.clouds, 15, 70) * f.dry * (1 - 0.4 * f.moon)) },
-    { id: "beach", name: "Spiaggia", min: 3, sea: true, score: (f) => (f.day ? up(f.t, 21, 27) * f.dry * down(f.wind, 20, 40) * down(f.wave, 0.8, 1.8) : 0) },
-    { id: "sail", name: "Vela", min: 3, sea: true, score: (f) => (f.day ? band(f.kn, 5, 9, 18, 25) * down(f.gustKn, 24, 34) * down(f.wave, 1.2, 2.2) * (0.6 + 0.4 * f.dry) : 0) },
-    { id: "boat", name: "Uscita in barca", min: 3, sea: true, score: (f) => (f.day ? down(f.kn, 9, 17) * down(f.wave, 0.4, 1) * f.dry : 0) },
+    // Sport
+    { id: "sport", group: "Sport", name: "Sport all'aperto", min: 1, score: (f) => band(f.t, 0, 8, 24, 30) * f.dry * down(f.wind, 25, 45) * (f.day ? 1 : 0.7) },
+    { id: "run", group: "Sport", name: "Corsa", min: 1, score: (f) => band(f.t, -2, 6, 20, 28) * f.dry * down(f.wind, 25, 45) },
+    { id: "bike", group: "Sport", name: "Bici", min: 2, score: (f) => band(f.t, 3, 10, 26, 33) * f.dry * down(f.gusts, 30, 55) * (f.day ? 1 : 0.4) },
+    { id: "walk", group: "Sport", name: "Camminata", min: 1, score: (f) => band(f.t, -2, 6, 26, 31) * f.dry * down(f.wind, 30, 50) },
+    { id: "trek", group: "Sport", name: "Trekking", min: 4, score: (f) => (f.day ? band(f.t, 2, 9, 25, 31) * f.veryDry * down(f.gusts, 35, 60) : 0) },
+    { id: "racket", group: "Sport", name: "Tennis e padel", min: 2, score: (f) => band(f.t, 5, 12, 28, 33) * f.veryDry * down(f.wind, 18, 32) * (f.day ? 1 : 0.8) },
+    { id: "football", group: "Sport", name: "Calcetto", min: 2, score: (f) => band(f.t, 0, 8, 26, 32) * f.dry * down(f.wind, 30, 50) },
+    // Tempo libero
+    { id: "outdoor", group: "Tempo libero", name: "Stare all'aperto", min: 2, score: (f) => band(f.t, 8, 15, 28, 33) * f.dry * down(f.wind, 22, 40) },
+    { id: "dog", group: "Tempo libero", name: "Passeggiata col cane", min: 1, score: (f) => band(f.t, -4, 4, 24, 30) * f.dry * down(f.wind, 30, 50) },
+    { id: "table", group: "Tempo libero", name: "Tavolino all'aperto", min: 2, score: (f) => band(f.t, 10, 17, 28, 34) * f.dry * down(f.wind, 18, 35) },
+    { id: "bbq", group: "Tempo libero", name: "Grigliata", min: 3, score: (f) => (f.hour >= 11 && f.hour <= 22 ? band(f.t, 8, 15, 30, 35) * f.veryDry * down(f.wind, 15, 30) : 0) },
+    { id: "picnic", group: "Tempo libero", name: "Picnic", min: 3, score: (f) => (f.day ? band(f.t, 13, 19, 29, 34) * f.veryDry * down(f.wind, 15, 28) : 0) },
+    { id: "trip", group: "Tempo libero", name: "Gita fuori porta", min: 6, score: (f) => (f.day ? band(f.t, 6, 13, 28, 34) * f.veryDry * down(f.wind, 25, 45) * (0.75 + 0.25 * down(f.clouds, 40, 95)) : 0) },
+    { id: "moto", group: "Tempo libero", name: "Giro in moto", min: 2, score: (f) => (f.day ? band(f.t, 5, 12, 30, 36) * f.veryDry * down(f.gusts, 35, 60) : 0) },
+    { id: "fishing", group: "Tempo libero", name: "Pesca", min: 3, score: (f) => band(f.t, 2, 10, 28, 34) * f.dry * down(f.wind, 18, 32) },
+    { id: "stars", group: "Tempo libero", name: "Guardare le stelle", min: 2, score: (f) => (f.day || (f.hour >= 5 && f.hour <= 8) ? 0 : down(f.clouds, 15, 70) * f.dry * (1 - 0.4 * f.moon)) },
+    // Casa
+    { id: "laundry", group: "Casa", name: "Bucato steso", min: 4, score: (f) => (f.day ? f.dry * down(f.hum, 60, 90) * up(f.t, 2, 12) * (0.7 + 0.3 * up(f.wind, 3, 15)) : 0) },
+    { id: "works", group: "Casa", name: "Lavori all'aperto", min: 4, score: (f) => (f.day ? band(f.t, 3, 9, 29, 34) * f.veryDry * down(f.hum, 70, 92) * down(f.wind, 20, 38) : 0) },
+    { id: "carwash", group: "Casa", name: "Lavare l'auto", min: 1, score: (f) => (f.day ? f.veryDry * up(f.t, 3, 8) * down(f.rainSoon, 20, 50) : 0) },
+    // Mare (solo vicino alla costa)
+    { id: "beach", group: "Mare", name: "Spiaggia", min: 3, sea: true, score: (f) => (f.day ? up(f.t, 21, 27) * f.dry * down(f.wind, 20, 40) * down(f.wave, 0.8, 1.8) : 0) },
+    { id: "swim", group: "Mare", name: "Bagno in mare", min: 1, sea: true, score: (f) => (f.day ? up(f.water, 18, 23) * up(f.t, 20, 26) * down(f.wave, 0.5, 1.2) * f.dry : 0) },
+    { id: "sail", group: "Mare", name: "Vela", min: 3, sea: true, score: (f) => (f.day ? band(f.kn, 5, 9, 18, 25) * down(f.gustKn, 24, 34) * down(f.wave, 1.2, 2.2) * (0.6 + 0.4 * f.dry) : 0) },
+    { id: "kite", group: "Mare", name: "Kite e windsurf", min: 2, sea: true, score: (f) => (f.day ? band(f.kn, 11, 15, 25, 32) * down(f.wave, 1.8, 3) * (0.6 + 0.4 * f.dry) : 0) },
+    { id: "surf", group: "Mare", name: "Surf", min: 2, sea: true, score: (f) => (f.day ? band(f.wave, 0.5, 0.9, 2, 3) * up(f.period, 4, 7) * down(f.kn, 10, 20) : 0) },
+    { id: "sup", group: "Mare", name: "SUP e canoa", min: 2, sea: true, score: (f) => (f.day ? down(f.kn, 6, 11) * down(f.wave, 0.3, 0.7) * f.dry * up(f.t, 14, 20) : 0) },
+    { id: "boat", group: "Mare", name: "Uscita in barca", min: 3, sea: true, score: (f) => (f.day ? down(f.kn, 9, 17) * down(f.wave, 0.4, 1) * f.dry : 0) },
   ];
-  const DEFAULT_LIKES = ["run", "bike", "table", "laundry", "stars", "beach"];
+  const DEFAULT_LIKES = ["sport", "outdoor", "laundry", "stars", "beach"];
   const activity = (id) => ACTIVITIES.find((a) => a.id === id);
   const available = () => ACTIVITIES.filter((a) => !a.sea || state.sea);
   const verdictWord = (score) => (score >= 0.8 ? "Ottimo" : score >= 0.6 ? "Buono" : "Discreto");
@@ -764,28 +783,54 @@
   let me = store.get("cielo:me", null);
   const MODES = { walk: "A piedi", bike: "In bici", moto: "In moto", car: "In auto", transit: "Con i mezzi" };
 
-  // L'indice orario della prossima volta che scocca quell'ora (oggi se deve ancora venire, altrimenti domani).
-  function nextAt(hhmmText) {
-    const h = state.data.hourly, hour = hhmmText.slice(0, 2);
-    for (let i = state.nowIndex; i < Math.min(state.nowIndex + 25, h.time.length); i++) if (hourOf(h.time[i]) === hour) return i;
-    return null;
+  // Profili salvati con la vecchia forma (un'andata e un ritorno) diventano due fasce di un'ora.
+  const plusHour = (t) => `${String((Number(t.slice(0, 2)) + 1) % 24).padStart(2, "0")}:00`;
+  if (me && !me.outings) {
+    me.outings = me.mode ? [{ from: me.out ?? "08:00", to: plusHour(me.out ?? "08:00"), name: "" }, { from: me.back ?? "18:00", to: plusHour(me.back ?? "18:00"), name: "" }] : [];
   }
 
-  function commuteLeg(mode, hhmmText, word) {
-    const i = nextAt(hhmmText);
-    if (i == null) return null;
-    const h = state.data.hourly, f = hourFacts(i), code = h.weather_code[i];
+  // Le ore della prossima volta che cade quella fascia: oggi se non è ancora finita, altrimenti domani.
+  function outingHours(o) {
+    const h = state.data.hourly;
+    const start = Number(o.from.slice(0, 2));
+    let end = Number(o.to.slice(0, 2)) + (Number(o.to.slice(3, 5)) > 0 ? 1 : 0);
+    if (end <= start) end = start + 1;
+    const today = state.data.current.time.slice(0, 10);
+    const dates = [today, state.data.daily.time[1]].filter(Boolean);
+    for (const date of dates) {
+      const idx = h.time.map((t, i) => i).filter((i) => h.time[i].startsWith(date) && i >= state.nowIndex &&
+        Number(hourOf(h.time[i])) >= start && Number(hourOf(h.time[i])) < end);
+      if (idx.length) return idx;
+    }
+    return [];
+  }
+
+  function outingLine(o, chosenMode) {
+    const mode = chosenMode || "walk"; // senza un mezzo scelto, ragiono come per chi è a piedi
+    const idx = outingHours(o);
+    if (!idx.length) return null;
+    const h = state.data.hourly, facts = idx.map(hourFacts);
     const exposed = mode !== "car";
     const issues = [];
-    const raining = f.prob >= 50 || isWet(code);
-    if (isSnow(code)) issues.push("neve");
-    else if (exposed && raining) issues.push(`pioggia probabile (${f.prob}%)`);
-    else if (!exposed && [65, 67, 82, 95, 96, 99].includes(code)) issues.push("pioggia intensa");
-    if ((mode === "bike" || mode === "moto") && f.gusts >= 45) issues.push(`raffiche a ${round(f.gusts)} km/h`);
-    if (h.temperature_2m[i] <= 1) issues.push(mode === "walk" || mode === "transit" ? "marciapiedi ghiacciati" : "rischio ghiaccio");
-    if ((mode === "car" || mode === "moto") && kind(code) === "fog") issues.push("nebbia");
-    const whenText = `${word} alle ${Number(hourOf(h.time[i]))}${isToday(h.time[i]) ? "" : " di domani"}`;
-    return { bad: issues.length > 0, text: `${whenText}: ${issues.length ? issues.join(", ") : `asciutto, ${round(h.temperature_2m[i])}°`}` };
+    const wet = idx.find((i) => (h.precipitation_probability[i] ?? 0) >= 50 || (isWet(h.weather_code[i]) && (h.precipitation_probability[i] ?? 0) >= 30));
+    const peak = Math.max(...facts.map((f) => f.prob));
+    const from = (i) => (i === idx[0] ? "" : ` dalle ${Number(hourOf(h.time[i]))}`);
+    if (idx.some((i) => isSnow(h.weather_code[i]))) issues.push("neve");
+    else if (exposed && wet != null) issues.push(`pioggia probabile${from(wet)} (${peak}%)`);
+    else if (!exposed && idx.some((i) => [65, 67, 82, 95, 96, 99].includes(h.weather_code[i]))) issues.push("pioggia intensa");
+    const gusts = Math.max(...facts.map((f) => f.gusts));
+    if ((mode === "bike" || mode === "moto") && gusts >= 45) issues.push(`raffiche a ${round(gusts)} km/h`);
+    const temps = idx.map((i) => h.temperature_2m[i]), lo = round(Math.min(...temps)), hi = round(Math.max(...temps));
+    if (lo <= 1) issues.push(mode === "car" || mode === "moto" || mode === "bike" ? "rischio ghiaccio" : "marciapiedi ghiacciati");
+    if ((mode === "car" || mode === "moto") && idx.some((i) => kind(h.weather_code[i]) === "fog")) issues.push("nebbia");
+
+    const range = lo === hi ? `${lo}°` : `${lo}–${hi}°`;
+    const tips = { walk: "Prendi l'ombrello.", bike: "Porta l'antipioggia o cambia mezzo.", moto: "Antipioggia e prudenza.", car: "Parti con qualche minuto di margine.", transit: "Prendi l'ombrello per il tratto a piedi." };
+    const startHour = Number(hourOf(h.time[idx[0]])), endHour = (Number(hourOf(h.time[idx.at(-1)])) + 1) % 24;
+    const title = `${o.name || MODES[chosenMode] || "Fuori casa"} · ${startHour}–${endHour}${isToday(h.time[idx[0]]) ? "" : " di domani"}`;
+    const rainy = issues.some((x) => x.startsWith("pioggia") || x === "neve"); // il consiglio riguarda la pioggia
+    const text = issues.length ? `${issues.join(", ")}, ${range}. ${rainy ? tips[mode] ?? "" : ""}` : `Asciutto, ${range}.`;
+    return { level: issues.length ? "warn" : "ok", title, text: text[0].toUpperCase() + text.slice(1).trim() };
   }
 
   function mineLines() {
@@ -793,14 +838,9 @@
     const h = data.hourly, d = data.daily;
     const lines = [];
 
-    if (me.mode && MODES[me.mode]) {
-      const legs = [commuteLeg(me.mode, me.out, "andata"), commuteLeg(me.mode, me.back, "ritorno")].filter(Boolean);
-      if (legs.length) {
-        const tips = { walk: "Prendi l'ombrello.", bike: "Porta l'antipioggia o cambia mezzo.", moto: "Antipioggia e prudenza.", car: "Parti con qualche minuto di margine.", transit: "Prendi l'ombrello per il tratto a piedi." };
-        const bad = legs.some((l) => l.bad);
-        const text = legs.map((l) => l.text).join("; ");
-        lines.push({ level: bad ? "warn" : "ok", title: MODES[me.mode], text: `${text[0].toUpperCase()}${text.slice(1)}.${bad ? " " + tips[me.mode] : ""}` });
-      }
+    for (const o of me.outings ?? []) {
+      const line = outingLine(o, me.mode);
+      if (line) lines.push(line);
     }
 
     for (const a of available().filter((x) => me.likes?.includes(x.id))) {
@@ -842,14 +882,22 @@
     $("mine").innerHTML = lines.map((l) => `<li class="${l.level}"><i aria-hidden="true"></i><span><b>${esc(l.title)}</b> ${esc(l.text)}</span></li>`).join("");
   }
 
+  const outingRow = (o = { from: "08:00", to: "09:00", name: "" }) => `<div class="outing">
+      <label>dalle <input type="time" name="from" value="${esc(o.from)}" step="3600" required></label>
+      <label>alle <input type="time" name="to" value="${esc(o.to)}" step="3600" required></label>
+      <input type="text" name="oname" value="${esc(o.name ?? "")}" maxlength="24" placeholder="Nome (facoltativo)" aria-label="Nome della fascia">
+      <button type="button" class="remove" aria-label="Rimuovi questa fascia">×</button>
+    </div>`;
+
   function openProfile() {
     const form = $("me-form");
-    $("me-likes").innerHTML = ACTIVITIES.map((a) => `<label class="pick"><input type="checkbox" name="like" value="${a.id}"><span>${a.name}</span></label>`).join("");
+    const groups = [...new Set(ACTIVITIES.map((a) => a.group))];
+    $("me-likes").innerHTML = groups.map((g) => `<div class="like-group"><h3>${g}${g === "Mare" ? " <small>vicino alla costa</small>" : ""}</h3><div class="picks">${
+      ACTIVITIES.filter((a) => a.group === g).map((a) => `<label class="pick"><input type="checkbox" name="like" value="${a.id}"><span>${a.name}</span></label>`).join("")}</div></div>`).join("");
     $("me-pollen").innerHTML = Object.entries(POLLEN).map(([key, name]) => `<label class="pick"><input type="checkbox" name="pollen" value="${key}"><span>${name}</span></label>`).join("");
     const cur = me ?? {};
+    $("me-outings").innerHTML = (cur.outings ?? []).map(outingRow).join("");
     form.elements.mode.value = cur.mode ?? "";
-    form.elements.out.value = cur.out ?? "08:00";
-    form.elements.back.value = cur.back ?? "18:00";
     form.elements.garden.checked = !!cur.garden;
     form.elements.uv.checked = !!cur.uv;
     form.querySelectorAll('[name="like"]').forEach((el) => { el.checked = !!cur.likes?.includes(el.value); });
@@ -857,29 +905,40 @@
     $("me-dialog").showModal();
   }
 
+  $("me-add-outing").addEventListener("click", () => {
+    const box = $("me-outings");
+    if (box.children.length >= 6) return toast("Al massimo sei fasce");
+    // La nuova fascia parte un'ora dopo la fine dell'ultima, per non doverla riscrivere da zero.
+    const last = box.lastElementChild?.querySelector('[name="to"]').value;
+    const from = last ? plusHour(last) : "08:00";
+    box.insertAdjacentHTML("beforeend", outingRow({ from, to: plusHour(from), name: "" }));
+    box.lastElementChild.querySelector("input").focus();
+  });
+  $("me-outings").addEventListener("click", (e) => { e.target.closest(".remove")?.parentElement.remove(); });
+
   $("me-start").addEventListener("click", openProfile);
   $("me-edit").addEventListener("click", openProfile);
   $("me-dialog").addEventListener("click", (e) => { if (e.target === e.currentTarget) e.currentTarget.close(); }); // clic fuori = chiudi
   $("me-form").addEventListener("submit", () => {
     const form = $("me-form");
     const picked = (name) => [...form.querySelectorAll(`[name="${name}"]:checked`)].map((el) => el.value);
-    me = {
-      mode: form.elements.mode.value, out: form.elements.out.value || "08:00", back: form.elements.back.value || "18:00",
-      likes: picked("like"), pollen: picked("pollen"), garden: form.elements.garden.checked, uv: form.elements.uv.checked,
-    };
+    const outings = [...form.querySelectorAll(".outing")].map((row) => ({
+      from: row.querySelector('[name="from"]').value, to: row.querySelector('[name="to"]').value, name: row.querySelector('[name="oname"]').value.trim(),
+    })).filter((o) => o.from && o.to).sort((x, y) => x.from.localeCompare(y.from));
+    me = { mode: form.elements.mode.value, outings, likes: picked("like"), pollen: picked("pollen"), garden: form.elements.garden.checked, uv: form.elements.uv.checked };
     store.set("cielo:me", me);
-    if (state.data) { renderMine(); renderMoments(); }
+    if (state.data) { renderMine(); renderMoments(); renderPlan(); }
   });
   $("me-clear").addEventListener("click", () => {
     me = null;
     try { localStorage.removeItem("cielo:me"); } catch { /* storage non disponibile */ }
     $("me-dialog").close();
-    if (state.data) { renderMine(); renderMoments(); }
+    if (state.data) { renderMine(); renderMoments(); renderPlan(); }
   });
 
   /* ---------- Quando conviene? I momenti migliori dei prossimi 7 giorni. ---------- */
 
-  let planId = store.get("cielo:plan", "bbq");
+  let planId = store.get("cielo:plan", "bbq"), planAll = false;
 
   function planFor(a) {
     const { data, trust } = state;
@@ -902,7 +961,11 @@
   function renderPlan() {
     const list = available();
     if (!list.some((a) => a.id === planId)) planId = "bbq";
-    $("plan-picks").innerHTML = list.map((a) => `<button type="button" data-plan="${a.id}" aria-pressed="${a.id === planId}">${a.name}</button>`).join("");
+    // Poche scelte in vista (le tue, più le classiche); le altre dietro "Tutte le attività".
+    const featured = [...new Set([...(me?.likes ?? []), "bbq", "trip", "sport", "works", planId])];
+    const shown = planAll ? list : list.filter((a) => featured.includes(a.id));
+    $("plan-picks").innerHTML = shown.map((a) => `<button type="button" data-plan="${a.id}" aria-pressed="${a.id === planId}">${a.name}</button>`).join("") +
+      (shown.length < list.length || planAll ? `<button type="button" class="more" data-more>${planAll ? "Mostra meno" : "Tutte le attività"}</button>` : "");
 
     const a = activity(planId), h = state.data.hourly;
     const options = planFor(a);
@@ -928,6 +991,7 @@
   }
 
   $("plan-picks").addEventListener("click", (e) => {
+    if (e.target.closest("[data-more]")) { planAll = !planAll; renderPlan(); return; }
     const b = e.target.closest("button[data-plan]");
     if (!b) return;
     planId = b.dataset.plan;

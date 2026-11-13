@@ -228,24 +228,28 @@
       <p class="sheet-intro">Scegli quello che ti riguarda. Le risposte restano su questo dispositivo: non creiamo account e non inviamo nulla.</p>
 
       <fieldset>
+        <legend>Quando sei fuori casa?</legend>
+        <p class="field-hint">Aggiungi le fasce in cui esci di solito: ti dico com'è il tempo in ciascuna.</p>
+        <div id="me-outings" class="outings"></div>
+        <button id="me-add-outing" class="add" type="button">+ Aggiungi una fascia</button>
+      </fieldset>
+
+      <fieldset>
         <legend>Come ti sposti di solito?</legend>
         <div class="picks">
-          <label class="pick"><input type="radio" name="mode" value="" checked><span>Non mi serve</span></label>
+          <label class="pick"><input type="radio" name="mode" value="" checked><span>Dipende</span></label>
           <label class="pick"><input type="radio" name="mode" value="walk"><span>A piedi</span></label>
           <label class="pick"><input type="radio" name="mode" value="bike"><span>In bici</span></label>
           <label class="pick"><input type="radio" name="mode" value="moto"><span>Moto o scooter</span></label>
           <label class="pick"><input type="radio" name="mode" value="car"><span>In auto</span></label>
           <label class="pick"><input type="radio" name="mode" value="transit"><span>Mezzi pubblici</span></label>
         </div>
-        <div class="times">
-          <label>Esco alle <input type="time" name="out" value="08:00" step="3600"></label>
-          <label>Torno alle <input type="time" name="back" value="18:00" step="3600"></label>
-        </div>
       </fieldset>
 
       <fieldset>
         <legend>Cosa ti piace fare?</legend>
-        <div id="me-likes" class="picks"></div>
+        <p class="field-hint">Scegli le voci generiche, quelle precise o entrambe.</p>
+        <div id="me-likes" class="like-groups"></div>
       </fieldset>
 
       <fieldset>

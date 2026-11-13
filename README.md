@@ -4,7 +4,7 @@ Il meteo che ti risponde: prima una frase chiara su cosa aspettarti, poi i numer
 
 - **Il titolo**: la cosa che conta, in poche parole ("Ombrello dalle 17."), scritta da Claude o, senza AI, calcolata nel browser
 - **Pioggia nelle prossime 2 ore**, a passi di 15 minuti
-- **Il mio meteo**: dici una volta come ti sposti, cosa ti piace fare e a cosa sei allergico; la pagina risponde su quello. Il profilo resta nel browser
+- **Il mio meteo**: dici una volta in quali fasce orarie sei fuori casa, come ti sposti, cosa ti piace fare e a cosa sei allergico; la pagina risponde su quello. Il profilo resta nel browser
 - **Quando conviene?**: i tre momenti migliori dei prossimi 7 giorni per grigliata, gita, lavori all'aperto, vela e altro, pesati per affidabilità
 - **Mare e vento** nello stesso posto: vento in nodi o km/h con nome (Scirocco, Maestrale…) e forza Beaufort, onde, mare lungo, temperatura dell'acqua, ora per ora
 - **Il momento giusto**: le ore migliori per corsa, bici, bucato, tavolino all'aperto, stelle e spiaggia
