@@ -6,12 +6,17 @@
   "description": "Cielo — un sito meteo moderno con sintesi AI",
   "scripts": {
     "dev": "vercel dev",
-    "start": "npx serve ."
+    "start": "npx serve .",
+    "build:map": "node tools/build-map.cjs vendor/map/lines.json"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
   }
 }

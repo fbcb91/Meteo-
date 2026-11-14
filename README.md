@@ -4,9 +4,10 @@ Il meteo che ti risponde: prima una frase chiara su cosa aspettarti, poi i numer
 
 - **Il titolo**: la cosa che conta, in poche parole ("Ombrello dalle 17."), scritta da Claude o, senza AI, calcolata nel browser
 - **Pioggia nelle prossime 2 ore**, a passi di 15 minuti
-- **Il mio meteo**: dici una volta in quali fasce orarie sei fuori casa, come ti sposti, cosa ti piace fare e a cosa sei allergico; la pagina risponde su quello. Il profilo resta nel browser
+- **Il mio meteo**: dici una volta dove vivi, in quali fasce orarie sei fuori casa, come ti sposti, cosa ti piace fare e a cosa sei allergico; la pagina risponde su quello. Il profilo resta nel browser
 - **Quando conviene?**: i tre momenti migliori dei prossimi 7 giorni per grigliata, gita, lavori all'aperto, vela e altro, pesati per affidabilità
 - **Mare e vento** nello stesso posto: vento in nodi o km/h con nome (Scirocco, Maestrale…) e forza Beaufort, onde, mare lungo, temperatura dell'acqua, ora per ora
+- **Radar pioggia** a richiesta: le ultime 2 ore di precipitazioni osservate, animate su una mappa di contorni ospitata nel sito. Si scarica solo se lo apri
 - **Il momento giusto**: le ore migliori per corsa, bici, bucato, tavolino all'aperto, stelle e spiaggia
 - **Affidabilità** di ogni giorno, dal confronto tra i modelli ECMWF, ICON e GFS
 - **Da tenere d'occhio**: vento forte, piogge abbondanti, gelo, caldo, UV (segnalazioni calcolate, non allerte ufficiali)
@@ -17,7 +18,7 @@ Il meteo che ti risponde: prima una frase chiara su cosa aspettarti, poi i numer
 - Ricerca città, posizione, preferiti, condivisione, installabile come app
 - **Chiedi a Cielo**: domande libere ("Posso grigliare sabato sera?")
 
-Niente pubblicità né tracciamento. I dati arrivano da [Open-Meteo](https://open-meteo.com/) (gratuito per uso non commerciale, senza chiave API).
+Niente pubblicità né tracciamento. I dati arrivano da [Open-Meteo](https://open-meteo.com/) (gratuito per uso non commerciale, senza chiave API); il radar da [RainViewer](https://www.rainviewer.com/api.html).
 
 ## Struttura
 
@@ -25,6 +26,7 @@ Niente pubblicità né tracciamento. I dati arrivano da [Open-Meteo](https://ope
 | --- | --- |
 | `index.html`, `styles.css`, `app.js` | Il sito. HTML/CSS/JS puri, nessuna build |
 | `fonts/`, `icons/`, `icon.svg`, `manifest.webmanifest` | Carattere Bricolage Grotesque (licenza OFL) e icone dell'app |
+| `vendor/` | Leaflet (BSD-2) e i contorni di coste e confini per il radar, generati da Natural Earth con `npm run build:map` |
 | `api/ai.js` | Funzione serverless che chiama Claude per sintesi e risposte |
 
 ## Provarlo in locale

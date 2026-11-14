@@ -414,6 +414,7 @@
 
     document.body.dataset.mode = day ? "day" : "night";
     renderArt(artFor(code, day));
+    try { radarSync(); } catch { /* il radar è facoltativo */ }
     document.querySelector('meta[name="theme-color"]').content = day ? "#F3EEE4" : "#101116";
 
     const sub = [place.admin, place.country].filter((x) => x && x !== place.name).join(", ");
@@ -879,6 +880,9 @@
     $("mine-empty").hidden = lines.length > 0;
     $("me-edit").hidden = !lines.length;
     $("mine").hidden = !lines.length;
+    const away = me?.home && lines.length && !samePlace(me.home, state.place);
+    $("mine-where").hidden = !away;
+    if (away) $("mine-where").innerHTML = `Stai guardando <b>${esc(state.place.name)}</b>: le risposte qui sotto valgono per questa città. <button type="button" class="link" id="mine-home">Torna a ${esc(me.home.name)}</button>`;
     $("mine").innerHTML = lines.map((l) => `<li class="${l.level}"><i aria-hidden="true"></i><span><b>${esc(l.title)}</b> ${esc(l.text)}</span></li>`).join("");
   }
 
@@ -896,6 +900,8 @@
       ACTIVITIES.filter((a) => a.group === g).map((a) => `<label class="pick"><input type="checkbox" name="like" value="${a.id}"><span>${a.name}</span></label>`).join("")}</div></div>`).join("");
     $("me-pollen").innerHTML = Object.entries(POLLEN).map(([key, name]) => `<label class="pick"><input type="checkbox" name="pollen" value="${key}"><span>${name}</span></label>`).join("");
     const cur = me ?? {};
+    setDraftHome(cur.home ?? null);
+    $("me-home-here").textContent = state.place ? `Usa ${state.place.name}` : "Usa questa";
     $("me-outings").innerHTML = (cur.outings ?? []).map(outingRow).join("");
     form.elements.mode.value = cur.mode ?? "";
     form.elements.garden.checked = !!cur.garden;
@@ -904,6 +910,44 @@
     form.querySelectorAll('[name="pollen"]').forEach((el) => { el.checked = !!cur.pollen?.includes(el.value); });
     $("me-dialog").showModal();
   }
+
+  // La città di casa: scelta dalla ricerca o presa da quella che si sta guardando.
+  let draftHome = null, homeTimer = 0, homeResults = [];
+  function setDraftHome(place) {
+    draftHome = place;
+    $("me-home").hidden = !place;
+    $("me-home-pick").hidden = !!place;
+    $("me-home-name").textContent = place ? [place.name, place.admin].filter(Boolean).join(", ") : "";
+    $("me-home-q").value = "";
+    $("me-home-results").innerHTML = "";
+  }
+  $("me-home-clear").addEventListener("click", () => setDraftHome(null));
+  $("me-home-here").addEventListener("click", () => state.place && setDraftHome(state.place));
+  $("me-home-q").addEventListener("input", (e) => {
+    clearTimeout(homeTimer);
+    const term = e.target.value.trim();
+    if (term.length < 2) { $("me-home-results").innerHTML = ""; return; }
+    homeTimer = setTimeout(async () => {
+      try {
+        const p = new URLSearchParams({ name: term, count: 5, language: "it", format: "json" });
+        const json = await getJSON(`https://geocoding-api.open-meteo.com/v1/search?${p}`, { timeout: 8000 });
+        homeResults = (json.results ?? []).map((r) => ({ name: r.name, admin: r.admin1 ?? "", country: r.country ?? "", lat: +r.latitude.toFixed(2), lon: +r.longitude.toFixed(2) }));
+        $("me-home-results").innerHTML = homeResults.length
+          ? homeResults.map((r, i) => `<li><button type="button" data-home="${i}"><b>${esc(r.name)}</b> <span>${esc([r.admin, r.country].filter(Boolean).join(", "))}</span></button></li>`).join("")
+          : "<li class=\"none\">Nessuna città trovata</li>";
+      } catch { $("me-home-results").innerHTML = "<li class=\"none\">Ricerca non disponibile, riprova</li>"; }
+    }, 220);
+  });
+  $("me-home-q").addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault(); // Invio sceglie la prima città, non salva il modulo
+    if (homeResults[0]) setDraftHome(homeResults[0]);
+  });
+  $("me-home-results").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-home]");
+    if (b) setDraftHome(homeResults[Number(b.dataset.home)]);
+  });
+  $("mine").parentElement.addEventListener("click", (e) => { if (e.target.id === "mine-home" && me?.home) load(me.home); });
 
   $("me-add-outing").addEventListener("click", () => {
     const box = $("me-outings");
@@ -925,15 +969,17 @@
     const outings = [...form.querySelectorAll(".outing")].map((row) => ({
       from: row.querySelector('[name="from"]').value, to: row.querySelector('[name="to"]').value, name: row.querySelector('[name="oname"]').value.trim(),
     })).filter((o) => o.from && o.to).sort((x, y) => x.from.localeCompare(y.from));
-    me = { mode: form.elements.mode.value, outings, likes: picked("like"), pollen: picked("pollen"), garden: form.elements.garden.checked, uv: form.elements.uv.checked };
+    const movedHome = draftHome && !samePlace(draftHome, me?.home);
+    me = { home: draftHome, mode: form.elements.mode.value, outings, likes: picked("like"), pollen: picked("pollen"), garden: form.elements.garden.checked, uv: form.elements.uv.checked };
     store.set("cielo:me", me);
-    if (state.data) { renderMine(); renderMoments(); renderPlan(); }
+    if (movedHome && !samePlace(me.home, state.place)) { load(me.home); return; } // nuova casa: la mostro subito
+    if (state.data) { renderFavs(); renderMine(); renderMoments(); renderPlan(); }
   });
   $("me-clear").addEventListener("click", () => {
     me = null;
     try { localStorage.removeItem("cielo:me"); } catch { /* storage non disponibile */ }
     $("me-dialog").close();
-    if (state.data) { renderMine(); renderMoments(); renderPlan(); }
+    if (state.data) { renderFavs(); renderMine(); renderMoments(); renderPlan(); }
   });
 
   /* ---------- Quando conviene? I momenti migliori dei prossimi 7 giorni. ---------- */
@@ -1183,10 +1229,13 @@
 
   function renderFavs() {
     const favs = store.get("cielo:favs", []);
-    $("favs").replaceChildren(...favs.map((f) => {
+    const home = me?.home;
+    const chips = home ? [{ ...home, isHome: true }, ...favs.filter((f) => !samePlace(f, home))] : favs;
+    $("favs").replaceChildren(...chips.map((f) => {
       const b = document.createElement("button");
       b.type = "button";
-      b.textContent = f.name;
+      b.textContent = f.isHome ? `⌂ ${f.name}` : f.name;
+      if (f.isHome) b.title = "La tua città";
       if (samePlace(f, state.place)) b.setAttribute("aria-current", "true");
       b.onclick = () => load(f);
       return b;
@@ -1510,8 +1559,123 @@
       if (samePlace(last, { lat, lon })) return last;
       return { name: (p.get("n") || "Posizione").slice(0, 60), admin: "", country: "", lat, lon };
     }
-    return store.get("cielo:last", null) ?? DEFAULT_PLACE;
+    return me?.home ?? store.get("cielo:last", null) ?? DEFAULT_PLACE;
   }
+
+  /* ---------- Radar: la mappa si scarica solo quando la si apre ---------- */
+
+  const radar = { map: null, base: null, labels: null, pin: null, frames: [], layers: [], at: 0, timer: 0, playing: !reducedMotion, mode: "", loadedAt: 0 };
+  let leafletReady = null;
+
+  function loadLeaflet() {
+    leafletReady ??= new Promise((resolve, reject) => {
+      const css = document.createElement("link");
+      css.rel = "stylesheet"; css.href = "vendor/leaflet/leaflet.css";
+      const js = document.createElement("script");
+      js.src = "vendor/leaflet/leaflet.js"; js.onload = resolve; js.onerror = reject;
+      document.head.append(css, js);
+    });
+    return leafletReady;
+  }
+
+  function radarShow(k) {
+    if (!radar.frames.length) return;
+    radar.at = (k + radar.frames.length) % radar.frames.length;
+    // I fotogrammi si aggiungono alla mappa al primo uso; quello dopo viene preparato in anticipo.
+    for (const n of [radar.at, (radar.at + 1) % radar.frames.length]) {
+      if (!radar.layers[n]) {
+        radar.layers[n] = L.tileLayer(`${radar.frames[n].url}/256/{z}/{x}/{y}/2/1_1.png`, { opacity: 0, maxNativeZoom: 7, maxZoom: 10, attribution: "Radar © RainViewer" }).addTo(radar.map);
+      }
+    }
+    radar.layers.forEach((layer, n) => layer?.setOpacity(n === radar.at ? 0.78 : 0));
+    $("radar-range").value = radar.at;
+    const ago = Math.round((Date.now() / 1000 - radar.frames[radar.at].time) / 60);
+    $("radar-time").textContent = new Date(radar.frames[radar.at].time * 1000).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }) + (ago <= 12 ? " · adesso" : ` · ${ago} min fa`);
+  }
+
+  function radarPlay(on) {
+    radar.playing = on;
+    clearInterval(radar.timer);
+    $("radar-play").setAttribute("aria-label", on ? "Pausa" : "Riproduci");
+    $("radar-play-icon").setAttribute("d", on ? "M7 5h4v14H7zM13 5h4v14h-4z" : "M8 5v14l11-7z");
+    if (!on) return;
+    let hold = 0;
+    radar.timer = setInterval(() => {
+      // Sull'ultimo fotogramma (il più recente) ci si ferma un attimo prima di ricominciare.
+      if (radar.at === radar.frames.length - 1 && hold++ < 3) return;
+      hold = 0;
+      radarShow(radar.at + 1);
+    }, 550);
+  }
+
+  async function radarFrames() {
+    const json = await getJSON("https://api.rainviewer.com/public/weather-maps.json");
+    radar.layers.forEach((layer) => layer?.remove());
+    radar.layers = [];
+    radar.frames = (json.radar?.past ?? []).map((f) => ({ time: f.time, url: json.host + f.path }));
+    radar.loadedAt = Date.now();
+    $("radar-range").max = Math.max(radar.frames.length - 1, 0);
+    radarShow(radar.frames.length - 1);
+  }
+
+  // Tiene la mappa allineata alla città e al tema (carta di giorno, inchiostro di notte).
+  function radarSync() {
+    if (!radar.map || !state.place) return;
+    // I contorni seguono il tema: inchiostro su carta di giorno, chiaro su scuro di notte.
+    const mode = document.body.dataset.mode;
+    if (mode !== radar.mode && radar.base) {
+      const ink = getComputedStyle(document.body).getPropertyValue("--ink").trim();
+      radar.base.setStyle({ color: ink });
+      radar.pin?.setStyle({ color: ink });
+      radar.mode = mode;
+    }
+    const here = [state.place.lat, state.place.lon];
+    if (!radar.pin) radar.pin = L.circleMarker(here, { radius: 7, color: getComputedStyle(document.body).getPropertyValue("--ink").trim(), weight: 2.5, fillColor: "#f08a00", fillOpacity: 1, interactive: false }).addTo(radar.map);
+    if (!samePlace(radar.shown, state.place)) { radar.map.setView(here, 7); radar.pin.setLatLng(here); radar.shown = state.place; }
+    if (Date.now() - radar.loadedAt > 9 * 60 * 1000) radarFrames().catch(() => {});
+  }
+
+  async function openRadar() {
+    const btn = $("radar-toggle");
+    $("radar-body").hidden = false;
+    $("radar-intro").hidden = true;
+    btn.textContent = "Chiudi";
+    btn.setAttribute("aria-expanded", "true");
+    store.set("cielo:radar", true);
+    try {
+      await loadLeaflet();
+      if (!radar.map) {
+        radar.map = L.map("radar-map", { minZoom: 4, maxZoom: 10, scrollWheelZoom: false, zoomSnap: 0.5, preferCanvas: true });
+        radar.map.attributionControl.setPrefix(false);
+        // Sfondo nostro: coste e confini disegnati da un file locale, senza servizi di mappe esterni.
+        const lines = await getJSON("vendor/map/lines.json", { timeout: 20000 });
+        const flip = (group) => group.map((line) => line.map(([lon, lat]) => [lat, lon]));
+        radar.base = L.polyline([...flip(lines.world), ...flip(lines.europe)], { weight: 1.2, opacity: 0.6, interactive: false, smoothFactor: 1.5, attribution: "Contorni: Natural Earth" }).addTo(radar.map);
+        radar.labels = L.layerGroup(ITALY.map(([name, , lat, lon]) => L.marker([lat, lon], { interactive: false, keyboard: false, icon: L.divIcon({ className: "radar-city", html: name, iconSize: null }) }))).addTo(radar.map);
+      }
+      radarSync();
+      radar.map.invalidateSize();
+      if (!radar.frames.length) await radarFrames();
+      radarPlay(radar.playing);
+    } catch (err) {
+      console.error(err);
+      $("radar-time").textContent = "Radar non disponibile in questo momento";
+    }
+  }
+
+  function closeRadar() {
+    clearInterval(radar.timer);
+    $("radar-body").hidden = true;
+    $("radar-intro").hidden = false;
+    $("radar-toggle").textContent = "Apri il radar";
+    $("radar-toggle").setAttribute("aria-expanded", "false");
+    store.set("cielo:radar", false);
+  }
+
+  $("radar-toggle").addEventListener("click", () => ($("radar-body").hidden ? openRadar() : closeRadar()));
+  $("radar-play").addEventListener("click", () => radarPlay(!radar.playing));
+  $("radar-range").addEventListener("input", (e) => { radarPlay(false); radarShow(Number(e.target.value)); });
+  if (store.get("cielo:radar", false)) openRadar(); // chi l'ha aperto una volta lo ritrova aperto
 
   /* ---------- Italia adesso ---------- */
 
