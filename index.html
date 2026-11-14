@@ -160,21 +160,24 @@
 
       <section id="radar" class="card radar full" aria-labelledby="radar-title">
         <div class="card-head">
-          <h2 id="radar-title">Radar pioggia</h2>
-          <button id="radar-toggle" class="primary small" type="button" aria-expanded="false" aria-controls="radar-body">Apri il radar</button>
+          <h2 id="radar-title">Pioggia sulla mappa</h2>
+          <button id="radar-toggle" class="primary small" type="button" aria-expanded="false" aria-controls="radar-body">Apri la mappa</button>
         </div>
-        <p id="radar-intro" class="radar-intro">La pioggia osservata dai radar nelle ultime 2 ore, su mappa. Si carica solo se la apri.</p>
+        <p id="radar-intro" class="radar-intro">Dove sta piovendo e dove pioverà: il radar delle ultime 2 ore e la previsione delle prossime 24, in un'unica animazione. Si carica solo se la apri.</p>
         <div id="radar-body" hidden>
-          <div id="radar-map" class="radar-map" role="application" aria-label="Mappa radar delle precipitazioni"></div>
+          <div id="radar-map" class="radar-map" role="application" aria-label="Mappa delle precipitazioni osservate e previste"></div>
           <div class="radar-bar">
             <button id="radar-play" class="icon-btn" type="button" aria-label="Pausa">
               <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path id="radar-play-icon" d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor"/></svg>
             </button>
-            <input id="radar-range" type="range" min="0" max="12" step="1" value="12" aria-label="Momento mostrato">
+            <div class="radar-track">
+              <input id="radar-range" type="range" min="0" max="12" step="1" value="12" aria-label="Momento mostrato">
+              <div class="radar-scale" aria-hidden="true"><span id="radar-start">2 ore fa</span><span id="radar-now">adesso</span><span id="radar-end"></span></div>
+            </div>
             <span id="radar-time" class="radar-time">--:--</span>
           </div>
           <div class="radar-legend" aria-hidden="true"><span>debole</span><i></i><span>forte</span></div>
-          <p class="note">È pioggia già caduta, non una previsione: per quello che arriva guarda «Ora per ora». Dati radar di RainViewer.</p>
+          <p class="note">Fino ad «adesso» è pioggia osservata dai radar (RainViewer). Da lì in poi è la previsione dei modelli (Open-Meteo), calcolata su una griglia di punti a qualche decina di km l'uno dall'altro: mostra dove va la perturbazione, non il singolo rovescio.</p>
         </div>
       </section>
 

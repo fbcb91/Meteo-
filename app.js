@@ -1564,7 +1564,7 @@
 
   /* ---------- Radar: la mappa si scarica solo quando la si apre ---------- */
 
-  const radar = { map: null, base: null, labels: null, pin: null, frames: [], layers: [], at: 0, timer: 0, playing: !reducedMotion, mode: "", loadedAt: 0 };
+  const radar = { map: null, base: null, labels: null, pin: null, overlay: null, fc: null, fcPending: null, frames: [], steps: [], nowAt: 0, layers: [], at: 0, timer: 0, playing: !reducedMotion, mode: "", loadedAt: 0 };
   let leafletReady = null;
 
   function loadLeaflet() {
@@ -1578,19 +1578,122 @@
     return leafletReady;
   }
 
-  function radarShow(k) {
-    if (!radar.frames.length) return;
-    radar.at = (k + radar.frames.length) % radar.frames.length;
-    // I fotogrammi si aggiungono alla mappa al primo uso; quello dopo viene preparato in anticipo.
-    for (const n of [radar.at, (radar.at + 1) % radar.frames.length]) {
-      if (!radar.layers[n]) {
-        radar.layers[n] = L.tileLayer(`${radar.frames[n].url}/256/{z}/{x}/{y}/2/1_1.png`, { opacity: 0, maxNativeZoom: 7, maxZoom: 10, attribution: "Radar © RainViewer" }).addTo(radar.map);
+  /* La linea del tempo unisce due fonti: fino ad "adesso" i fotogrammi del radar (pioggia osservata),
+     poi la previsione dei modelli, disegnata da noi a partire da una griglia di punti intorno alla città. */
+
+  const RAIN_COLORS = [[0.1, 155, 225, 255, 0], [0.4, 120, 200, 255, 0.5], [1.5, 59, 155, 255, 0.7], [4, 31, 79, 216, 0.8],
+    [10, 255, 210, 63, 0.86], [20, 255, 122, 26, 0.9], [40, 217, 43, 43, 0.95]]; // mm/h → colore e opacità
+
+  function rainColor(v) {
+    if (v <= RAIN_COLORS[0][0]) return [0, 0, 0, 0];
+    for (let i = 1; i < RAIN_COLORS.length; i++) {
+      const lo = RAIN_COLORS[i - 1], hi = RAIN_COLORS[i];
+      if (v <= hi[0]) {
+        const k = (v - lo[0]) / (hi[0] - lo[0]);
+        return [1, 2, 3, 4].map((c) => lo[c] + (hi[c] - lo[c]) * k);
       }
     }
-    radar.layers.forEach((layer, n) => layer?.setOpacity(n === radar.at ? 0.78 : 0));
+    return RAIN_COLORS.at(-1).slice(1);
+  }
+
+  // La griglia copre quello che la mappa mostra all'apertura, con circa 170 punti qualunque sia lo schermo.
+  function forecastGrid() {
+    const view = radar.map.getBounds().pad(0.08);
+    const width = Math.min(view.getEast() - view.getWest(), 24), height = Math.min(view.getNorth() - view.getSouth(), 14);
+    const step = Math.max(0.4, Math.round(Math.sqrt((width * height) / 170) * 20) / 20);
+    const cols = Math.ceil(width / step) + 1, rows = Math.ceil(height / step) + 1;
+    const center = radar.map.getCenter();
+    return { step, cols, rows, west: +(center.lng - ((cols - 1) / 2) * step).toFixed(2), north: +(center.lat + ((rows - 1) / 2) * step).toFixed(2) };
+  }
+
+  function radarForecast() {
+    const place = state.place, key = `${place.lat},${place.lon}`;
+    if (radar.fc?.key === key && Date.now() - radar.fc.at < 30 * 60 * 1000) return Promise.resolve();
+    if (radar.fcPending?.key === key) return radar.fcPending.promise; // già in corso per questa città
+    const promise = (async () => {
+      const grid = forecastGrid(), { cols, rows, step, west, north } = grid;
+      const lats = [], lons = [];
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) { lats.push((north - r * step).toFixed(2)); lons.push((west + c * step).toFixed(2)); }
+      const p = new URLSearchParams({ latitude: lats.join(","), longitude: lons.join(","), hourly: "precipitation", forecast_days: 2, timeformat: "unixtime", timezone: "GMT" });
+      const json = await getJSON(`https://api.open-meteo.com/v1/forecast?${p}`, { timeout: 20000 });
+      if (!Array.isArray(json) || json.length !== lats.length) throw new Error("griglia incompleta");
+      if (!samePlace(place, state.place)) return; // nel frattempo si è cambiata città
+
+      const now = Date.now() / 1000;
+      const hours = json[0].hourly.time.map((t, i) => [t, i]).filter(([t]) => t > now).slice(0, 24);
+      radar.fc = {
+        key, at: Date.now(), ...grid, times: hours.map(([t]) => t), images: [],
+        grids: hours.map(([, i]) => json.map((cell) => cell.hourly.precipitation[i] ?? 0)),
+        bounds: [[north - (rows - 1) * step, west], [north, west + (cols - 1) * step]],
+      };
+      radarSteps();
+    })().finally(() => { if (radar.fcPending?.promise === promise) radar.fcPending = null; });
+    radar.fcPending = { key, promise };
+    return promise;
+  }
+
+  // Un'ora di previsione → immagine: i valori della griglia vengono sfumati tra un punto e l'altro,
+  // e i bordi si dissolvono per non mostrare un rettangolo netto quando si sposta la mappa.
+  function forecastImage(n) {
+    const fc = radar.fc;
+    if (fc.images[n]) return fc.images[n];
+    const { cols, rows } = fc, scale = 14;
+    const canvas = document.createElement("canvas");
+    canvas.width = (cols - 1) * scale; canvas.height = (rows - 1) * scale;
+    const ctx = canvas.getContext("2d"), img = ctx.createImageData(canvas.width, canvas.height), grid = fc.grids[n];
+    const at = (r, c) => grid[r * cols + c];
+    const edge = (d) => { const k = clamp01(d / scale); return k * k * (3 - 2 * k); };
+    for (let y = 0; y < canvas.height; y++) {
+      const gy = y / scale, r = Math.min(Math.floor(gy), rows - 2), fy = gy - r;
+      for (let x = 0; x < canvas.width; x++) {
+        const gx = x / scale, c = Math.min(Math.floor(gx), cols - 2), fx = gx - c;
+        const v = at(r, c) * (1 - fx) * (1 - fy) + at(r, c + 1) * fx * (1 - fy) + at(r + 1, c) * (1 - fx) * fy + at(r + 1, c + 1) * fx * fy;
+        const [red, green, blue, alpha] = rainColor(v), o = (y * canvas.width + x) * 4;
+        const fade = edge(Math.min(x, y, canvas.width - 1 - x, canvas.height - 1 - y));
+        img.data[o] = red; img.data[o + 1] = green; img.data[o + 2] = blue; img.data[o + 3] = alpha * fade * 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    return (fc.images[n] = canvas.toDataURL());
+  }
+
+  function radarSteps() {
+    const wasAtNow = !radar.steps.length || radar.at === radar.nowAt;
+    radar.steps = [...radar.frames.map((f, n) => ({ kind: "obs", n, time: f.time })), ...(radar.fc?.times ?? []).map((time, n) => ({ kind: "fc", n, time }))];
+    radar.nowAt = Math.max(radar.frames.length - 1, 0);
+    $("radar-range").max = Math.max(radar.steps.length - 1, 0);
+    const mark = $("radar-now"), last = Math.max(radar.steps.length - 1, 1);
+    mark.style.left = `${(radar.nowAt / last) * 100}%`;
+    $("radar-end").textContent = radar.fc?.times.length ? `+${radar.fc.times.length} ore` : "";
+    $("radar-start").hidden = !radar.frames.length;
+    if (radar.steps.length) radarShow(wasAtNow ? radar.nowAt : Math.min(radar.at, radar.steps.length - 1));
+  }
+
+  function radarShow(k) {
+    if (!radar.steps.length) return;
+    radar.at = (k + radar.steps.length) % radar.steps.length;
+    const step = radar.steps[radar.at];
+
+    if (step.kind === "obs") {
+      // I fotogrammi del radar si aggiungono alla mappa al primo uso; quello dopo viene preparato in anticipo.
+      for (const n of [step.n, Math.min(step.n + 1, radar.frames.length - 1)]) {
+        radar.layers[n] ??= L.tileLayer(`${radar.frames[n].url}/256/{z}/{x}/{y}/2/1_1.png`, { opacity: 0, maxNativeZoom: 7, maxZoom: 10, attribution: "Radar © RainViewer" }).addTo(radar.map);
+      }
+    } else {
+      if (!radar.overlay) radar.overlay = L.imageOverlay(forecastImage(step.n), radar.fc.bounds, { opacity: 0, interactive: false, attribution: "Previsione: Open-Meteo" }).addTo(radar.map);
+      radar.overlay.setBounds(radar.fc.bounds);
+      radar.overlay.setUrl(forecastImage(step.n));
+    }
+    radar.layers.forEach((layer, n) => layer?.setOpacity(step.kind === "obs" && n === step.n ? 0.78 : 0));
+    radar.overlay?.setOpacity(step.kind === "fc" ? 0.85 : 0);
+
     $("radar-range").value = radar.at;
-    const ago = Math.round((Date.now() / 1000 - radar.frames[radar.at].time) / 60);
-    $("radar-time").textContent = new Date(radar.frames[radar.at].time * 1000).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }) + (ago <= 12 ? " · adesso" : ` · ${ago} min fa`);
+    const clock = new Date(step.time * 1000).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+    const minutes = Math.round((step.time - Date.now() / 1000) / 60);
+    const label = $("radar-time");
+    label.dataset.kind = step.kind;
+    if (step.kind === "fc") label.textContent = `${clock} · previsione tra ${minutes < 90 ? `${Math.max(minutes, 1)} min` : `${Math.round(minutes / 60)} ore`}`;
+    else label.textContent = `${clock} · ${radar.at === radar.nowAt ? "adesso" : `radar, ${-minutes} min fa`}`;
   }
 
   function radarPlay(on) {
@@ -1601,11 +1704,11 @@
     if (!on) return;
     let hold = 0;
     radar.timer = setInterval(() => {
-      // Sull'ultimo fotogramma (il più recente) ci si ferma un attimo prima di ricominciare.
-      if (radar.at === radar.frames.length - 1 && hold++ < 3) return;
+      // Sull'ultimo momento ci si ferma un attimo prima di ricominciare da capo.
+      if (radar.at === radar.steps.length - 1 && hold++ < 3) return;
       hold = 0;
       radarShow(radar.at + 1);
-    }, 550);
+    }, 500);
   }
 
   async function radarFrames() {
@@ -1614,8 +1717,7 @@
     radar.layers = [];
     radar.frames = (json.radar?.past ?? []).map((f) => ({ time: f.time, url: json.host + f.path }));
     radar.loadedAt = Date.now();
-    $("radar-range").max = Math.max(radar.frames.length - 1, 0);
-    radarShow(radar.frames.length - 1);
+    radarSteps();
   }
 
   // Tiene la mappa allineata alla città e al tema (carta di giorno, inchiostro di notte).
@@ -1633,6 +1735,7 @@
     if (!radar.pin) radar.pin = L.circleMarker(here, { radius: 7, color: getComputedStyle(document.body).getPropertyValue("--ink").trim(), weight: 2.5, fillColor: "#f08a00", fillOpacity: 1, interactive: false }).addTo(radar.map);
     if (!samePlace(radar.shown, state.place)) { radar.map.setView(here, 7); radar.pin.setLatLng(here); radar.shown = state.place; }
     if (Date.now() - radar.loadedAt > 9 * 60 * 1000) radarFrames().catch(() => {});
+    radarForecast().catch((err) => console.error("previsione su mappa:", err));
   }
 
   async function openRadar() {
@@ -1655,11 +1758,13 @@
       }
       radarSync();
       radar.map.invalidateSize();
-      if (!radar.frames.length) await radarFrames();
+      // Le due fonti sono indipendenti: se una manca, l'altra si vede lo stesso.
+      const loaded = await Promise.allSettled([radar.frames.length ? null : radarFrames(), radarForecast()]);
+      if (!radar.steps.length) throw loaded[0].reason ?? loaded[1].reason ?? new Error("nessun dato");
       radarPlay(radar.playing);
     } catch (err) {
       console.error(err);
-      $("radar-time").textContent = "Radar non disponibile in questo momento";
+      $("radar-time").textContent = "Mappa non disponibile in questo momento";
     }
   }
 
@@ -1667,7 +1772,7 @@
     clearInterval(radar.timer);
     $("radar-body").hidden = true;
     $("radar-intro").hidden = false;
-    $("radar-toggle").textContent = "Apri il radar";
+    $("radar-toggle").textContent = "Apri la mappa";
     $("radar-toggle").setAttribute("aria-expanded", "false");
     store.set("cielo:radar", false);
   }

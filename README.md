@@ -7,7 +7,7 @@ Il meteo che ti risponde: prima una frase chiara su cosa aspettarti, poi i numer
 - **Il mio meteo**: dici una volta dove vivi, in quali fasce orarie sei fuori casa, come ti sposti, cosa ti piace fare e a cosa sei allergico; la pagina risponde su quello. Il profilo resta nel browser
 - **Quando conviene?**: i tre momenti migliori dei prossimi 7 giorni per grigliata, gita, lavori all'aperto, vela e altro, pesati per affidabilità
 - **Mare e vento** nello stesso posto: vento in nodi o km/h con nome (Scirocco, Maestrale…) e forza Beaufort, onde, mare lungo, temperatura dell'acqua, ora per ora
-- **Radar pioggia** a richiesta: le ultime 2 ore di precipitazioni osservate, animate su una mappa di contorni ospitata nel sito. Si scarica solo se lo apri
+- **Pioggia sulla mappa** a richiesta: il radar delle ultime 2 ore e la previsione delle prossime 24 in un'unica animazione, su contorni ospitati nel sito. La previsione è disegnata nel browser da una griglia di punti Open-Meteo. Si scarica solo se la apri
 - **Il momento giusto**: le ore migliori per corsa, bici, bucato, tavolino all'aperto, stelle e spiaggia
 - **Affidabilità** di ogni giorno, dal confronto tra i modelli ECMWF, ICON e GFS
 - **Da tenere d'occhio**: vento forte, piogge abbondanti, gelo, caldo, UV (segnalazioni calcolate, non allerte ufficiali)

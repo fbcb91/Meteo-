@@ -406,11 +406,17 @@ body[data-mode="night"] .alerts { background: #3a1d12; color: #ffd9c7; border-co
 .radar-map .leaflet-bar a { background: var(--surface); color: var(--ink); border-color: var(--line); }
 .radar-map.leaflet-container { background: var(--surface); }
 .radar-city { width: auto !important; height: auto !important; margin: 6px 0 0 8px !important; white-space: nowrap; font: 700 12px/1 "Bricolage Grotesque", system-ui, sans-serif; color: var(--ink); opacity: .7; text-shadow: 0 0 3px var(--surface), 0 0 3px var(--surface); }
-.radar-bar { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
+.radar-bar { display: flex; align-items: flex-start; gap: 14px; margin-top: 12px; }
+.radar-time { line-height: 28px; }
 .radar-bar .icon-btn { width: 44px; height: 44px; border-radius: 14px; }
-.radar-bar input[type="range"] { flex: 1; min-width: 0; accent-color: var(--ink); height: 28px; }
-.radar-time { flex: none; min-width: 9.5em; text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; }
-@media (max-width: 480px) { .radar-time { min-width: 0; font-size: 14px; } .radar-bar { gap: 10px; } }
+.radar-track { flex: 1; min-width: 0; }
+.radar-bar input[type="range"] { display: block; width: 100%; margin: 0; accent-color: var(--ink); height: 28px; }
+.radar-scale { position: relative; display: flex; justify-content: space-between; height: 16px; font-size: 12px; font-weight: 600; color: var(--muted); }
+#radar-now { position: absolute; top: 0; translate: -50% 0; padding: 0 6px; color: var(--ink); font-weight: 800; background: var(--surface); }
+#radar-now::before { content: ""; position: absolute; left: 50%; top: -9px; width: 2px; height: 8px; background: var(--ink); }
+.radar-time[data-kind="fc"] { color: var(--blue); }
+.radar-time { flex: none; min-width: 13.5em; text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) { .radar-bar { flex-wrap: wrap; gap: 6px 10px; } .radar-time { order: -1; flex: 1 0 100%; min-width: 0; text-align: left; font-size: 16px; } }
 .radar-legend { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
 .radar-legend i { flex: none; width: 150px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #9be1ff, #3b9bff, #1f4fd8, #ffd23f, #ff7a1a, #d92b2b); }
 
