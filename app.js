@@ -289,6 +289,26 @@
     });
   }
 
+  /* Cambiare città. Le località italiane hanno una pagina propria (/meteo/bologna): ci si va con una
+     navigazione vera, così l'indirizzo è pulito e condivisibile. Per le altre si resta in pagina. */
+  let SERVER_PLACE = null;
+  try { SERVER_PLACE = JSON.parse(document.body.dataset.place ?? "null"); } catch { /* nessuna città dal server */ }
+
+  async function go(place) {
+    let slug = place.slug;
+    if (!slug) {
+      try { slug = (await getJSON(`/api/place?lat=${place.lat}&lon=${place.lon}`, { timeout: 2500 })).slug; } catch { /* senza elenco si resta in pagina */ }
+    }
+    if (slug) { location.assign(`/meteo/${slug}`); return; }
+    history.pushState(null, "", `/?${new URLSearchParams({ lat: place.lat, lon: place.lon, n: place.name })}`);
+    const guide = $("guida");
+    if (guide) guide.hidden = true; // il testo scritto dal server parla di un'altra città
+    document.querySelector('link[rel="canonical"]')?.remove();
+    scrollTo({ top: 0 });
+    load(place);
+  }
+  addEventListener("popstate", () => location.reload());
+
   async function load(place, { remember = true } = {}) {
     const id = ++state.requestId;
     state.place = place;
@@ -317,10 +337,8 @@
       state.nowIndex = Math.max(0, data.hourly.time.findIndex((t) => t.slice(0, 13) === key));
 
       if (remember) store.set("cielo:last", place);
-      const url = new URL(location.href);
-      url.search = new URLSearchParams({ lat: place.lat, lon: place.lon, n: place.name }).toString();
-      history.replaceState(null, "", url);
-      document.title = `${place.name} ${round(data.current.temperature_2m)}° — Cielo`;
+      // Home e pagine di città hanno il titolo scritto dal server; lo cambio solo per le località fuori elenco.
+      if (new URLSearchParams(location.search).has("lat")) document.title = `Meteo ${place.name} — Cielo`;
 
       render();
       loadSummary(id);
@@ -418,7 +436,7 @@
     document.querySelector('meta[name="theme-color"]').content = day ? "#F3EEE4" : "#101116";
 
     const sub = [place.admin, place.country].filter((x) => x && x !== place.name).join(", ");
-    $("place").innerHTML = esc(place.name) + (sub ? `<small>${esc(sub)}</small>` : "");
+    $("place").innerHTML = `Meteo ${esc(place.name)}` + (sub ? `<small>${esc(sub)}</small>` : "");
     $("when").textContent = new Date(iso).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" }) + " · " + hhmm(iso);
     countTo(round(at ? h.temperature_2m[preview] : c.temperature_2m));
     $("now-icon").innerHTML = icon(code, day);
@@ -947,7 +965,7 @@
     const b = e.target.closest("button[data-home]");
     if (b) setDraftHome(homeResults[Number(b.dataset.home)]);
   });
-  $("mine").parentElement.addEventListener("click", (e) => { if (e.target.id === "mine-home" && me?.home) load(me.home); });
+  $("mine").parentElement.addEventListener("click", (e) => { if (e.target.id === "mine-home" && me?.home) go(me.home); });
 
   $("me-add-outing").addEventListener("click", () => {
     const box = $("me-outings");
@@ -972,7 +990,7 @@
     const movedHome = draftHome && !samePlace(draftHome, me?.home);
     me = { home: draftHome, mode: form.elements.mode.value, outings, likes: picked("like"), pollen: picked("pollen"), garden: form.elements.garden.checked, uv: form.elements.uv.checked };
     store.set("cielo:me", me);
-    if (movedHome && !samePlace(me.home, state.place)) { load(me.home); return; } // nuova casa: la mostro subito
+    if (movedHome && !samePlace(me.home, state.place)) { go(me.home); return; } // nuova casa: la mostro subito
     if (state.data) { renderFavs(); renderMine(); renderMoments(); renderPlan(); }
   });
   $("me-clear").addEventListener("click", () => {
@@ -1237,7 +1255,7 @@
       b.textContent = f.isHome ? `⌂ ${f.name}` : f.name;
       if (f.isHome) b.title = "La tua città";
       if (samePlace(f, state.place)) b.setAttribute("aria-current", "true");
-      b.onclick = () => load(f);
+      b.onclick = () => go(f);
       return b;
     }));
     const isFav = favs.some((f) => samePlace(f, state.place));
@@ -1344,7 +1362,7 @@
     const r = results[i];
     if (!r) return;
     q.value = ""; results = []; closeSuggestions(); q.blur();
-    load(r);
+    go(r);
   }
 
   $("search").addEventListener("submit", (e) => { e.preventDefault(); choose(Math.max(active, 0)); });
@@ -1368,7 +1386,7 @@
         if (name) place = { name, admin: r.principalSubdivision ?? "", country: r.countryName ?? "", lat, lon };
       } catch { /* resta "La tua posizione" */ }
       btn.classList.remove("busy");
-      load(place);
+      go(place);
     }, () => {
       btn.classList.remove("busy");
       showStatus("Non ho il permesso di usare la tua posizione. Puoi cercare la città qui sopra.");
@@ -1495,7 +1513,7 @@
     if (state.aiAvailable === false) return null;
     try {
       const p = new URLSearchParams({ lat: state.place.lat, lon: state.place.lon, name: state.place.name, ...extra });
-      const json = await getJSON(`api/ai?${p}`, { timeout: 25000 });
+      const json = await getJSON(`/api/ai?${p}`, { timeout: 25000 });
       if (typeof json.text !== "string" || !json.text.trim()) throw new Error("risposta vuota");
       state.aiAvailable = true;
       return json;
@@ -1552,6 +1570,7 @@
   /* ---------- Avvio ---------- */
 
   function initialPlace() {
+    if (SERVER_PLACE) return SERVER_PLACE; // pagina di una città
     const p = new URLSearchParams(location.search);
     const lat = parseFloat(p.get("lat")), lon = parseFloat(p.get("lon"));
     if (Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
@@ -1570,9 +1589,9 @@
   function loadLeaflet() {
     leafletReady ??= new Promise((resolve, reject) => {
       const css = document.createElement("link");
-      css.rel = "stylesheet"; css.href = "vendor/leaflet/leaflet.css";
+      css.rel = "stylesheet"; css.href = "/vendor/leaflet/leaflet.css";
       const js = document.createElement("script");
-      js.src = "vendor/leaflet/leaflet.js"; js.onload = resolve; js.onerror = reject;
+      js.src = "/vendor/leaflet/leaflet.js"; js.onload = resolve; js.onerror = reject;
       document.head.append(css, js);
     });
     return leafletReady;
@@ -1751,7 +1770,7 @@
         radar.map = L.map("radar-map", { minZoom: 4, maxZoom: 10, scrollWheelZoom: false, zoomSnap: 0.5, preferCanvas: true });
         radar.map.attributionControl.setPrefix(false);
         // Sfondo nostro: coste e confini disegnati da un file locale, senza servizi di mappe esterni.
-        const lines = await getJSON("vendor/map/lines.json", { timeout: 20000 });
+        const lines = await getJSON("/vendor/map/lines.json", { timeout: 20000 });
         const flip = (group) => group.map((line) => line.map(([lon, lat]) => [lat, lon]));
         radar.base = L.polyline([...flip(lines.world), ...flip(lines.europe)], { weight: 1.2, opacity: 0.6, interactive: false, smoothFactor: 1.5, attribution: "Contorni: Natural Earth" }).addTo(radar.map);
         radar.labels = L.layerGroup(ITALY.map(([name, , lat, lon]) => L.marker([lat, lon], { interactive: false, keyboard: false, icon: L.divIcon({ className: "radar-city", html: name, iconSize: null }) }))).addTo(radar.map);
@@ -1785,10 +1804,10 @@
   /* ---------- Italia adesso ---------- */
 
   const ITALY = [
-    ["Roma", "Lazio", 41.89, 12.48], ["Milano", "Lombardia", 45.46, 9.19], ["Napoli", "Campania", 40.85, 14.27],
-    ["Torino", "Piemonte", 45.07, 7.69], ["Palermo", "Sicilia", 38.12, 13.36], ["Bologna", "Emilia-Romagna", 44.49, 11.34],
-    ["Firenze", "Toscana", 43.77, 11.26], ["Venezia", "Veneto", 45.44, 12.33], ["Bari", "Puglia", 41.12, 16.87],
-    ["Cagliari", "Sardegna", 39.22, 9.12],
+    ["Roma", "roma", 41.89, 12.48], ["Milano", "milano", 45.46, 9.19], ["Napoli", "napoli", 40.85, 14.27],
+    ["Torino", "torino", 45.07, 7.69], ["Palermo", "palermo", 38.12, 13.36], ["Bologna", "bologna", 44.49, 11.34],
+    ["Firenze", "firenze", 43.77, 11.26], ["Venezia", "venezia", 45.44, 12.33], ["Bari", "bari", 41.12, 16.87],
+    ["Cagliari", "cagliari", 39.22, 9.12],
   ];
 
   async function loadItaly(retried = false) {
@@ -1807,8 +1826,8 @@
         if (rows.length !== ITALY.length) return;
         try { sessionStorage.setItem("cielo:italy", JSON.stringify({ at: Date.now(), rows })); } catch { /* storage non disponibile */ }
       }
-      $("italy").innerHTML = ITALY.map(([name], i) =>
-        `<li><button type="button" data-city="${i}"><span>${name}</span>${icon(rows[i].weather_code, !!rows[i].is_day)}<span class="i-temp">${round(rows[i].temperature_2m)}°</span></button></li>`).join("");
+      $("italy").innerHTML = ITALY.map(([name, slug], i) =>
+        `<li><a href="/meteo/${slug}"><span>${name}</span>${icon(rows[i].weather_code, !!rows[i].is_day)}<span class="i-temp">${round(rows[i].temperature_2m)}°</span></a></li>`).join("");
       $("italia").hidden = false;
     } catch {
       // Sezione facoltativa: un secondo tentativo, poi resta nascosta.
@@ -1816,13 +1835,6 @@
     }
   }
 
-  $("italy").addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-city]");
-    if (!b) return;
-    const [name, admin, lat, lon] = ITALY[Number(b.dataset.city)];
-    load({ name, admin, country: "Italia", lat, lon });
-    scrollTo({ top: 0, behavior: reducedMotion ? "auto" : "smooth" });
-  });
 
   // Evidenzia nella barra di navigazione la sezione che si sta guardando.
   const navLinks = [...document.querySelectorAll(".site-nav a")];

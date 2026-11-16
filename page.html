@@ -3,19 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Cielo — il meteo che ti risponde</title>
-  <meta name="description" content="Il meteo che ti dice cosa fare: una frase chiara, la pioggia minuto per minuto, il momento giusto per uscire e quanto fidarti della previsione.">
+  <!--head:start-->
+  <title>Cielo — Meteo Italia: previsioni chiare, senza pubblicità</title>
+  <meta name="description" content="Il meteo che ti risponde: cosa aspettarti oggi in una frase, pioggia nelle prossime ore, previsioni a 7 giorni, vento, mare e mappa della pioggia.">
+  <!--head:end-->
   <meta name="theme-color" content="#F3EEE4">
-  <link rel="manifest" href="manifest.webmanifest">
-  <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="preload" href="fonts/bricolage-grotesque.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/bricolage-grotesque.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/styles.css">
 </head>
 <body data-mode="day">
   <div class="wrap">
     <header class="top">
-      <a class="brand" href="./" aria-label="Cielo, home">cielo<i></i></a>
+      <a class="brand" href="/" aria-label="Cielo, home">cielo<i></i></a>
 
       <nav class="site-nav" aria-label="Sezioni">
         <a href="#sky">Adesso</a>
@@ -219,7 +221,7 @@
       <section id="italia" class="card italy" aria-labelledby="italy-title" hidden>
         <div class="card-head">
           <h2 id="italy-title">Italia adesso</h2>
-          <span class="hint">scegli una città</span>
+          <a class="link" href="/meteo">Tutte le città</a>
         </div>
         <ul id="italy" class="italy-list"></ul>
       </section>
@@ -229,11 +231,14 @@
       </section>
     </main>
 
+    <!--guide-->
+
     <footer class="foot">
       <div class="foot-in">
         <div class="foot-brand">
           <p class="brand">cielo<i></i></p>
           <p>Il meteo che ti risponde: prima cosa fare, poi i numeri.</p>
+          <p class="foot-links"><a href="/meteo">Tutte le regioni</a> · <a href="/come-funziona">Come funziona</a> · <a href="/privacy">Privacy</a></p>
         </div>
         <div>
           <h2>Come funziona</h2>
@@ -312,6 +317,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-  <script src="app.js" defer></script>
+  <script src="/app.js" defer></script>
 </body>
 </html>

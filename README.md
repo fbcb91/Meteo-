@@ -22,31 +22,52 @@ Niente pubblicità né tracciamento. I dati arrivano da [Open-Meteo](https://ope
 
 ## Struttura
 
-| File | Cosa fa |
+| Percorso | Cosa fa |
 | --- | --- |
-| `index.html`, `styles.css`, `app.js` | Il sito. HTML/CSS/JS puri, nessuna build |
-| `fonts/`, `icons/`, `icon.svg`, `manifest.webmanifest` | Carattere Bricolage Grotesque (licenza OFL) e icone dell'app |
-| `vendor/` | Leaflet (BSD-2) e i contorni di coste e confini per il radar, generati da Natural Earth con `npm run build:map` |
-| `api/ai.js` | Funzione serverless che chiama Claude per sintesi e risposte |
+| `page.html`, `styles.css`, `app.js` | L'app: HTML/CSS/JS puri, nessuna build. `page.html` è il modello che il server completa |
+| `api/page.js` | Genera le pagine: home, `/meteo/<città>`, `/regioni/<regione>`, `/meteo`, `/come-funziona`, `/privacy`, 404 |
+| `api/sitemap.js` | `/sitemap.xml` (tutte le città) e `/robots.txt` |
+| `api/place.js` | Dalle coordinate alla pagina della città più vicina |
+| `api/ai.js` | Chiama Claude per titolo e risposte |
+| `lib/` | Codice condiviso dalle funzioni e testi delle pagine statiche |
+| `data/places.json` | 8.377 comuni italiani con coordinate (GeoNames, CC BY 4.0), generato con `npm run build:places` |
+| `vendor/` | Leaflet (BSD-2) e i contorni di coste e confini per la mappa (Natural Earth), generati con `npm run build:map` |
+| `fonts/`, `icons/`, `icon.svg`, `og.png`, `manifest.webmanifest` | Carattere Bricolage Grotesque (OFL), icone, immagine per i social |
+| `vercel.json` | Indirizzi, cache e intestazioni di sicurezza |
+
+## Come ci trovano i motori di ricerca
+
+Ogni comune ha una pagina propria, `/meteo/bologna`, che il server restituisce già completa: titolo e descrizione con i dati del giorno, un testo con le previsioni di oggi, domani e della settimana, dati strutturati (percorso di navigazione e pagina) e collegamenti alle città vicine. La CDN tiene ogni pagina in cache per mezz'ora, quindi il servizio meteo viene interrogato al massimo due volte l'ora per città.
+
+Le pagine di regione e l'elenco `/meteo` collegano tutte le città tra loro; `/sitemap.xml` le elenca tutte. I link con coordinate (`/?lat=…`), usati per le località fuori elenco, non vengono indicizzati.
 
 ## Provarlo in locale
 
 ```bash
-npx serve .
+npm install
 ```
 
-Così il sito funziona senza la parte AI: la sintesi e le quattro domande rapide vengono calcolate nel browser dai dati di previsione, e il campo per le domande libere resta nascosto.
+```bash
+npm run dev
+```
 
-## Pubblicarlo con l'AI attiva
+Il server locale (`tools/dev.mjs`) imita Vercel: stessi indirizzi, stesse intestazioni, stesse funzioni. Senza `ANTHROPIC_API_KEY` il sito funziona senza la parte AI: titolo e risposte rapide vengono calcolati nel browser.
 
-Il progetto è pronto per [Vercel](https://vercel.com/):
+## Mettere online
 
-1. Importa il repository su Vercel (nessuna configurazione di build).
-2. In *Settings → Environment Variables* aggiungi `ANTHROPIC_API_KEY` con una chiave creata su [platform.claude.com](https://platform.claude.com/).
-3. Fai il deploy.
+Il progetto è pronto per [Vercel](https://vercel.com/), senza configurazione di build. Variabili d'ambiente (*Settings → Environment Variables*):
 
-La chiave resta sul server. L'endpoint `/api/ai` accetta solo coordinate e una domanda breve, scarica da solo i dati meteo e mette in cache le sintesi per 15 minuti. È comunque un endpoint pubblico che consuma crediti: imposta un limite di spesa sulla chiave e, se il traffico cresce, aggiungi un rate limit.
+| Variabile | A cosa serve |
+| --- | --- |
+| `ANTHROPIC_API_KEY` | Attiva titolo e risposte dell'AI. Creala su [platform.claude.com](https://platform.claude.com/) e imposta un limite di spesa |
+| `SITE_URL` | Indirizzo definitivo del sito (es. `https://www.esempio.it`): finisce in canonical, sitemap e anteprime social. Senza, viene usato l'indirizzo della richiesta |
+| `GOOGLE_SITE_VERIFICATION` | Codice di verifica di Google Search Console (facoltativo) |
 
-Il modello usato è definito in cima a `api/ai.js`.
+Prima del lancio:
 
-Su un hosting solo statico (es. GitHub Pages) il sito funziona lo stesso, senza la parte AI.
+1. Collega un dominio tuo e imposta `SITE_URL`.
+2. Completa i punti segnati **[DA COMPLETARE]** in `lib/docs.js` (titolare del trattamento nella pagina privacy).
+3. Verifica il sito su Google Search Console e invia `/sitemap.xml`.
+4. Open-Meteo è gratuito solo per uso non commerciale e con limiti di richieste: per un sito pubblico con traffico serve il loro piano a pagamento.
+
+L'endpoint `/api/ai` è pubblico e consuma crediti: ha un freno di base per indirizzo, ma il limite vero è quello di spesa sulla chiave. Il modello usato è definito in cima a `api/ai.js`.
