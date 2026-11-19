@@ -66,7 +66,7 @@ Il progetto è pronto per [Vercel](https://vercel.com/), senza configurazione di
 Prima del lancio:
 
 1. Collega un dominio tuo e imposta `SITE_URL`.
-2. Completa i punti segnati **[DA COMPLETARE]** in `lib/docs.js` (titolare del trattamento nella pagina privacy).
+2. Completa i punti segnati **[DA COMPLETARE]** in `lib/docs.js` (email di contatto del titolare nella pagina privacy).
 3. Verifica il sito su Google Search Console e invia `/sitemap.xml`.
 4. Open-Meteo è gratuito solo per uso non commerciale e con limiti di richieste: per un sito pubblico con traffico serve il loro piano a pagamento.
 
